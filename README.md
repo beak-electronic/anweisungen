@@ -2,7 +2,12 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.77
+**Version:** 1.78
+
+## Neu in 1.78
+
+- **Fehleranalyse: Zeilen löschen:** Auf der letzten Seite (Fehlertabelle) gibt es im Editor bei bestehenden Einträgen einen Minus-Button wie im Layout-„Fehler“-Embed – **ohne Plus**. Orphan-Zeilen (Seite mit Fehler gelöscht, Zeile blieb) und normale Einträge können entfernt werden; Layout-Embeds und Projektzustand bleiben konsistent.
+- **Service Worker:** Cache `anweisungen-shell-v1.78` und `?v=1.78`.
 
 ## Neu in 1.77
 

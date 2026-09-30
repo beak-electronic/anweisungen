@@ -797,7 +797,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.77';
+  const APP_VERSION = '1.78';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -4659,7 +4659,9 @@
       }
     }
 
-    if (state.editMode && isEmbed) {
+    /* v1.78: Minus auch auf Fehleranalyse (letzte Seite) – nur Löschen, kein Plus.
+       Orphan-Zeilen (Seite gelöscht, Zeile blieb) können so entfernt werden. */
+    if (state.editMode && (isEmbed || editable)) {
       const minus = document.createElement('button');
       minus.type = 'button';
       minus.className = 'btn sm fehler-embed-minus';
@@ -4670,7 +4672,8 @@
       minus.addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
-        removeFehlerEmbedRow(page, row.id);
+        if (isEmbed) removeFehlerEmbedRow(page, row.id);
+        else removeFehlerPanelRow(row.id);
       });
       rowEl.appendChild(minus);
     }
@@ -4716,6 +4719,13 @@
       span.className = lab.cls;
       span.textContent = lab.text;
       colHead.appendChild(span);
+    }
+    /* v1.78: Platz für Minus-Buttons (kein Plus auf der letzten Seite) */
+    if (state.editMode) {
+      const spacer = document.createElement('span');
+      spacer.className = 'fehler-col-actions';
+      spacer.setAttribute('aria-hidden', 'true');
+      colHead.appendChild(spacer);
     }
     panel.appendChild(colHead);
 
@@ -9838,15 +9848,9 @@
   updateDateiMenuState();
   el.addPageBtn.addEventListener('click', addPage);
   el.removePageBtn.addEventListener('click', () => { void removePage(); });
-  function removeFehlerEmbedRow(layoutPage, rowId) {
-    if (!state.editMode) return;
-    if (!layoutPage || isFixedPage(layoutPage) || !rowId) return;
-    const embed = normalizeFehlerEmbed(layoutPage.fehlerEmbed);
-    if (!embed) return;
-    const nextIds = embed.rowIds.filter((id) => id !== rowId);
-    if (nextIds.length) layoutPage.fehlerEmbed = { rowIds: nextIds };
-    else delete layoutPage.fehlerEmbed;
-
+  /** v1.78: Fehlerzeile leeren und aus allen Layout-Embeds entfernen (Projekt konsistent). */
+  function clearFehlerRowEverywhere(rowId) {
+    if (!rowId) return;
     const fp = getFehlerPage();
     if (fp) {
       padFehlerRows(fp);
@@ -9859,15 +9863,33 @@
         row.sourcePageId = null;
       }
     }
-    // Also drop dangling refs from other layout embeds (should not happen)
     for (const p of state.doc.pages) {
-      if (!p || p === layoutPage || isFixedPage(p) || !p.fehlerEmbed) continue;
+      if (!p || isFixedPage(p) || !p.fehlerEmbed) continue;
       const e = normalizeFehlerEmbed(p.fehlerEmbed);
       if (!e) continue;
       const kept = e.rowIds.filter((id) => id !== rowId);
       if (kept.length) p.fehlerEmbed = { rowIds: kept };
       else delete p.fehlerEmbed;
     }
+  }
+
+  function removeFehlerEmbedRow(layoutPage, rowId) {
+    if (!state.editMode) return;
+    if (!layoutPage || isFixedPage(layoutPage) || !rowId) return;
+    const embed = normalizeFehlerEmbed(layoutPage.fehlerEmbed);
+    if (!embed) return;
+    clearFehlerRowEverywhere(rowId);
+    state.selectedId = null;
+    state.selectedSplitId = null;
+    renderAll();
+    requestAnimationFrame(() => snapToIndex(state.doc.pageIndex, false));
+  }
+
+  /** v1.78: Minus auf Fehleranalyse (letzte Seite) – nur Löschen, kein Plus. */
+  function removeFehlerPanelRow(rowId) {
+    if (!state.editMode) return;
+    if (!rowId) return;
+    clearFehlerRowEverywhere(rowId);
     state.selectedId = null;
     state.selectedSplitId = null;
     renderAll();

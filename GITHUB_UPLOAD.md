@@ -1,4 +1,4 @@
-# Anweisungen auf GitHub hochladen (Version 1.77)
+# Anweisungen auf GitHub hochladen (Version 1.78)
 
 Nur die App-Software (statische PWA). Kein `npm install`, keine Testdateien, keine Stückliste/.beak.
 
@@ -15,7 +15,7 @@ Optional: **Settings → Pages** → Branch `main`.
 ## Variante B – Terminal
 
 ```bash
-cd Anweisungen-github-v1.77
+cd Anweisungen-github-v1.78
 git remote add origin https://github.com/DEIN-USER/DEIN-REPO.git
 git branch -M main
 git push -u origin main

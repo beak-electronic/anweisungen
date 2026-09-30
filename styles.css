@@ -2275,6 +2275,15 @@ input.fehler-cell:focus {
 .fehler-embed-row {
   gap: 0;
 }
+/* v1.78: Minus auf Fehleranalyse-Seite (gleiche Button-Klasse wie Embed) */
+.fehler-page .fehler-embed-minus {
+  margin-left: 6px;
+}
+.overview-thumb .overview-miniature .fehler-embed-minus,
+.overview-thumb .overview-miniature .fehler-embed-plus,
+.overview-thumb .overview-miniature .fehler-col-actions {
+  display: none !important;
+}
 .fehler-row-nav {
   cursor: pointer;
 }
