@@ -1,20 +1,18 @@
 # Anweisungen auf GitHub hochladen (Version 1.75)
 
-Dieses Verzeichnis ist die fertige App-Quelle (statische PWA). Kein `npm install` nötig.
+Nur die App-Software (statische PWA). Kein `npm install`, keine Testdateien, keine Stückliste/.beak.
 
-## Variante A – GitHub-Website (einfach)
+## Variante A – GitHub-Website
 
-1. Auf github.com ein **neues leeres** Repository anlegen (ohne README/.gitignore, falls schon hier enthalten).
+1. Auf github.com ein **neues leeres** Repository anlegen.
 2. Dieses ZIP entpacken.
-3. Im neuen Repo: **Add file → Upload files** und den **Inhalt** dieses Ordners hochladen  
-   (also `index.html`, `app.js`, `styles.css`, `vendor/`, … – nicht den äußeren ZIP-Namen als einzige Datei).
+3. Im Repo: **Add file → Upload files** und den **Inhalt** dieses Ordners hochladen  
+   (`index.html`, `app.js`, `styles.css`, `vendor/`, …).
 4. Committen.
 
-Optional: unter **Settings → Pages** die Branch `main` als Website freigeben.
+Optional: **Settings → Pages** → Branch `main`.
 
-## Variante B – GitHub Desktop / Terminal
-
-Ordner enthält bereits ein Git-Repository mit einem Initial-Commit.
+## Variante B – Terminal
 
 ```bash
 cd Anweisungen-github-v1.75
@@ -22,10 +20,3 @@ git remote add origin https://github.com/DEIN-USER/DEIN-REPO.git
 git branch -M main
 git push -u origin main
 ```
-
-(URL durch dein neues Repo ersetzen.)
-
-## Hinweis
-
-- Primärformat der App ist `.beak` (ZIP mit `project.json`); diese Dateien gehören **nicht** ins Repo.
-- Mac-Helfer liegen unter `mac-opener/` (optional; der frühere lokale Serve wurde entfernt).
