@@ -2275,9 +2275,19 @@ input.fehler-cell:focus {
 .fehler-embed-row {
   gap: 0;
 }
-/* v1.78: Minus auf Fehleranalyse-Seite (gleiche Button-Klasse wie Embed) */
+/* v1.79: Minus auf Fehleranalyse absolut rechts – kein col-actions-Spacer,
+   Spaltenlayout wie vor v1.78 (kein grauer Vertikalstreifen). */
+.app.edit-mode .fehler-page .fehler-row:not(.fehler-row-empty) {
+  position: relative;
+  padding-right: 40px;
+}
 .fehler-page .fehler-embed-minus {
-  margin-left: 6px;
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 0;
+  z-index: 2;
 }
 .overview-thumb .overview-miniature .fehler-embed-minus,
 .overview-thumb .overview-miniature .fehler-embed-plus,

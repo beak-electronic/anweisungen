@@ -2,7 +2,14 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.78
+**Version:** 1.79
+
+## Neu in 1.79
+
+- **Fehleranalyse: grauer Streifen weg:** Der v1.78-`fehler-col-actions`-Spacer auf der letzten Seite entfiel; Minus sitzt absolut rechts – Tabellenspalten wieder wie zuvor.
+- **Löschen kompakt:** Nach Minus auf der Fehlertabelle rückt der Rest nach oben (keine Löcher); leere Slots nur am Ende.
+- **Cascade Quellseite:** Löschen entfernt die Zeile **und** das Layout-`fehlerEmbed` (Zelle) auf der `sourcePageId`-Seite, nicht nur die Tabellenfelder.
+- **Service Worker:** Cache `anweisungen-shell-v1.79` und `?v=1.79`.
 
 ## Neu in 1.78
 
