@@ -18,9 +18,10 @@
   --page-snap-ms: 480ms;
   /* v1.28: Floating-Topbar wieder Overlay – Index/Fehler-Titel unter den Buttons padden.
      Mit opaker Statusleiste (black) ist safe-area-top oft 0 → mind. 8px + Buttonzeile (~36px). */
-  /* v1.50/v1.52/v1.67: oberer Canvas-Inset – opake Statusleiste (black) liefert oft safe-area-top=0;
-     mind. 24px, damit Inhalt auf iPad Air unter der schwarzen Leiste sitzt, nicht darunter. */
-  --stage-top-inset: max(24px, env(safe-area-inset-top, 0px));
+  /* v1.80: schlanker Canvas-Inset – nur reale Safe-Area (opake Statusleiste black → oft 0).
+     Kein 24px-Floor mehr: der erzeugte schwarze Band unter der Uhr schnitt Fill-Titel ab
+     und machte Fenster oben dicker. Statusleiste bleibt apple … black (nicht translucent). */
+  --stage-top-inset: env(safe-area-inset-top, 0px);
   /* v1.76: clearance follows slim topbar (pad 8 + ~34 btn), plus real safe-area */
   --chrome-clearance: calc(max(8px, env(safe-area-inset-top, 0px)) + 50px);
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -486,7 +487,7 @@ button { -webkit-tap-highlight-color: transparent; }
   margin: 0;
   box-sizing: border-box;
 }
-/* v1.50/v1.52/v1.67: iPad Fill+Fenster – Viewport oben einrücken (Statusleiste), Cover/Seite darunter */
+/* v1.80: iPad Fill+Fenster – nur echte Safe-Area oben (meist 0 bei opaque black) */
 html.stage-ipad-fill .page-viewport,
 html.stage-ipad-window .page-viewport {
   padding-top: var(--stage-top-inset);
@@ -536,9 +537,9 @@ html.stage-ipad-window .page-viewport {
   flex-shrink: 0;
 }
 
-/* v1.52 iPad Fill: Stage füllt den inset-Viewport (unter Statusleiste). Logische Seite
-   per Cover (max) unten bündig – edge-to-edge, Overflow oben. Deutlich füllender als Fenster.
-   Kein Innen-Spacer in Index/Fehler (wie 1.49/1.50). */
+/* v1.80 iPad Fill: Stage füllt den Viewport; logische Seite per Contain (min) –
+   volle Seite sichtbar (magenta Titelstreifen + Tabelle), unten bündig, horizontal zentriert.
+   Kein Cover-Schnitt oben. Letterbox außen schwarz. Kein Innen-Spacer (1.49). */
 html.stage-ipad-fill .page-slide {
   justify-content: center;
   align-items: stretch;
@@ -551,17 +552,17 @@ html.stage-ipad-fill .stage {
   aspect-ratio: auto;
   background: #000000; /* ggf. Rand schwarz (Theme), nicht Stage-Grau */
 }
-/* Cover: bottom-left origin; Overflow oben (und ggf. rechts) */
+/* Contain: bottom-center; kein Overflow – Titel + Seite komplett sichtbar */
 html.stage-ipad-fill .stage-inner {
   position: absolute;
-  left: 0;
+  left: 50%;
   bottom: 0;
   top: auto;
   right: auto;
   margin-left: 0;
   margin-right: 0;
-  transform: scale(var(--page-scale, 1));
-  transform-origin: 0 100%;
+  transform: translateX(-50%) scale(var(--page-scale, 1));
+  transform-origin: center bottom;
 }
 
 /* v1.31 iPad Fenster: Höhe füllen, Breite aus Aspect → Letterbox L/R; volle Seite sichtbar (kein Schnitt oben) */

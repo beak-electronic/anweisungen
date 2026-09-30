@@ -797,7 +797,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.79';
+  const APP_VERSION = '1.80';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -4960,9 +4960,11 @@
     return slide;
   }
 
-  /** v1.17/v1.26/v1.31/v1.50/v1.52: Maßstab logische Seite (PAGE_REF_W×PAGE_REF_H) → Bühne.
-   *  stage-ipad-fill: Cover (max width/height) innerhalb des inset-Rects (Viewport minus
-   *    --stage-top-inset / Safe-Area oben) – edge-to-edge unter der Statusleiste, Overflow oben.
+  /** v1.17/v1.26/v1.31/v1.50/v1.80: Maßstab logische Seite (PAGE_REF_W×PAGE_REF_H) → Bühne.
+   *  stage-ipad-fill: Contain (min width/height) im Viewport – volle Seite sichtbar
+   *    (Titelstreifen + Inhalt), unten bündig, horizontal zentriert; kein Cover-Schnitt.
+   *  Runtime-Scale: bestehende .beak bleiben im logischen 1156×803-Raum; Öffnen/Resize
+   *    greifen automatisch (kein manuelles Neu-Anlegen).
    *  stage-ipad-window / Desktop: width-only (volle Seite, Letterbox L/R wie 1.31). */
   let pageScaleValue = 0;
   function updatePageScale() {
@@ -4976,8 +4978,8 @@
     let raw;
     if (document.documentElement.classList.contains('stage-ipad-fill')) {
       if (!h) return;
-      /* v1.52: Cover again (v1.50 Contain made Fill≈Window on iPad mini) */
-      raw = Math.max(w / PAGE_REF_W, h / PAGE_REF_H);
+      /* v1.80: Contain – volle Seite (magenta Titel + Tabelle); Cover schnitt Titel ab */
+      raw = Math.min(w / PAGE_REF_W, h / PAGE_REF_H);
     } else {
       raw = w / PAGE_REF_W;
     }
@@ -11294,12 +11296,12 @@
     try { fixStandaloneViewport(); } catch (_) {}
   }
 
-  /* v1.22/v1.26/v1.31/v1.50/v1.52: iPad-Standalone → stage-ipad-fill (Cover im Inset) oder stage-ipad-window.
+  /* v1.22/v1.26/v1.31/v1.50/v1.80: iPad-Standalone → stage-ipad-fill (Contain) oder stage-ipad-window.
      Desktop/PC → keine iPad-Klassen: Seite einpassen. Preference trotzdem speicherbar.
      v1.26: visualViewport bevorzugen; --app-h nie größer als sichtbar.
      v1.36: Während Tastatur-Eingabe Layout-Größe einfrieren (kein Shrink aus vv.height) –
              gilt für Fill und Fenster; Sichtbarkeit über updateKbAvoid (translateY).
-     v1.52: Fill wieder Cover (max) innerhalb Viewport − Safe-Area-Top; Fenster bleibt Contain/width-only. */
+     v1.80: Fill wieder Contain (min) – pinker Titel + volle Seite; schlanker --stage-top-inset. */
   let lastGoodAppH = '';
   let lastGoodAppW = '';
   function fixStandaloneViewport() {

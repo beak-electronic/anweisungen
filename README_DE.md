@@ -2,7 +2,14 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.79
+**Version:** 1.80
+
+## Neu in 1.80
+
+- **Bildschirmfüllend: volle Seite sichtbar:** Fill skaliert wieder per **Contain** (`Math.min`) – magenta Titelstreifen (z. B. „200.434 PA 500…“) und gesamte Seite (Tabelle) werden nicht mehr oben weggeschnitten. Unten bündig, horizontal zentriert; Letterbox außen schwarz.
+- **Schlanker oberer Canvas-Inset:** `--stage-top-inset` nur noch `env(safe-area-inset-top)` – kein 24px-Floor mehr. Der dicke schwarze Band unter der iPad-Uhr entfällt (opake Statusleiste `black` liefert oft Safe-Area 0). **Fenster** ebenfalls schlanker oben. Statusleiste bleibt **opaque black** (nicht translucent). Schlanke Editor-Topbar aus 1.76 unverändert.
+- **Alte .beak automatisch:** Layout bleibt im logischen 1156×803-Raum; `updatePageScale` / Viewport greifen beim Öffnen und bei Resize – kein manuelles Neu-Anlegen nötig.
+- **Service Worker:** Cache `anweisungen-shell-v1.80` und `?v=1.80`.
 
 ## Neu in 1.79
 
