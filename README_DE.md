@@ -2,7 +2,13 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.86
+**Version:** 1.87
+
+## Neu in 1.87
+
+- **Varianten-Seite:** Werkzeuge „Vertikal teilen“ / „Horizontal teilen“ im Editor wieder sichtbar.
+- **Varianten-Name:** Nach Foto frei benennbar; Bezeichnung im Foto **verschiebbar**, bleibt in der Zelle (Editor: editieren + ziehen; Viewer: Text ohne schwarzen Rahmen).
+- **Service Worker:** Cache `anweisungen-shell-v1.87` und `?v=1.87`.
 
 ## Neu in 1.86
 

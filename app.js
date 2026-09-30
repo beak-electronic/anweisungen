@@ -60,7 +60,7 @@
   }
 
   function makeLeaf(photo) {
-    return { type: 'leaf', id: uid('l'), photo: clonePhoto(photo), caption: '', variantId: null };
+    return { type: 'leaf', id: uid('l'), photo: clonePhoto(photo), caption: '', captionX: 0.05, captionY: 0.78, variantId: null };
   }
 
   function makeIndexRow(text, targetPage) {
@@ -205,6 +205,93 @@
 
   function leafCaption(leaf) {
     return leaf && typeof leaf.caption === 'string' ? leaf.caption : '';
+  }
+
+  /** v1.87: relative Caption-Position (0–1) in der Fotozelle; Default unten links. */
+  function leafCaptionPos(leaf) {
+    let x = leaf && typeof leaf.captionX === 'number' && isFinite(leaf.captionX) ? leaf.captionX : 0.05;
+    let y = leaf && typeof leaf.captionY === 'number' && isFinite(leaf.captionY) ? leaf.captionY : 0.78;
+    return { x: clamp(x, 0, 1), y: clamp(y, 0, 1) };
+  }
+
+  function applyVariantCaptionPosition(capWrap, leafEl, cell) {
+    if (!capWrap || !leafEl) return;
+    const pos = leafCaptionPos(cell);
+    const lw = leafEl.clientWidth || 1;
+    const lh = leafEl.clientHeight || 1;
+    const ww = capWrap.offsetWidth || 0;
+    const wh = capWrap.offsetHeight || 0;
+    let left = pos.x * lw;
+    let top = pos.y * lh;
+    const maxL = Math.max(0, lw - ww);
+    const maxT = Math.max(0, lh - wh);
+    left = Math.min(Math.max(0, left), maxL);
+    top = Math.min(Math.max(0, top), maxT);
+    capWrap.style.left = left + 'px';
+    capWrap.style.top = top + 'px';
+    /* Persist geklemmte Fraktion, falls Größe die alte Position verdrängt */
+    if (lw > 0 && lh > 0) {
+      cell.captionX = left / lw;
+      cell.captionY = top / lh;
+    }
+  }
+
+  function bindVariantCaptionDrag(capWrap, leafEl, cell) {
+    if (!capWrap || !leafEl || !state.editMode) return;
+    let dragging = false;
+    let startX = 0, startY = 0, origLeft = 0, origTop = 0, pointerId = null;
+
+    const onMove = (e) => {
+      if (!dragging || (pointerId != null && e.pointerId !== pointerId)) return;
+      e.preventDefault();
+      const lw = leafEl.clientWidth || 1;
+      const lh = leafEl.clientHeight || 1;
+      const ww = capWrap.offsetWidth || 0;
+      const wh = capWrap.offsetHeight || 0;
+      let left = origLeft + (e.clientX - startX);
+      let top = origTop + (e.clientY - startY);
+      left = Math.min(Math.max(0, left), Math.max(0, lw - ww));
+      top = Math.min(Math.max(0, top), Math.max(0, lh - wh));
+      capWrap.style.left = left + 'px';
+      capWrap.style.top = top + 'px';
+      cell.captionX = left / lw;
+      cell.captionY = top / lh;
+    };
+
+    const onUp = (e) => {
+      if (!dragging || (pointerId != null && e.pointerId !== pointerId)) return;
+      dragging = false;
+      pointerId = null;
+      capWrap.classList.remove('is-dragging');
+      try { capWrap.releasePointerCapture(e.pointerId); } catch (_) {}
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      syncVariantsFromPage();
+      updateVariantBar();
+      if (typeof historyCommit === 'function') historyCommit();
+    };
+
+    const startDrag = (e) => {
+      if (!state.editMode) return;
+      if (e.target.closest('.variant-caption-input')) return;
+      if (e.button != null && e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragging = true;
+      pointerId = e.pointerId;
+      startX = e.clientX;
+      startY = e.clientY;
+      origLeft = parseFloat(capWrap.style.left) || 0;
+      origTop = parseFloat(capWrap.style.top) || 0;
+      capWrap.classList.add('is-dragging');
+      try { capWrap.setPointerCapture(e.pointerId); } catch (_) {}
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+    };
+
+    capWrap.addEventListener('pointerdown', startDrag);
   }
 
   /** Varianten aus der Varianten-Seite (Zellen mit ausgefüllter Bezeichnung). */
@@ -1298,7 +1385,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.86';
+  const APP_VERSION = '1.87';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -3855,41 +3942,54 @@
 
       leaf.appendChild(wrap);
 
-      /* v1.85: Varianten-Zelle – Bezeichnung unter dem Foto (Rahmen nur im Editor) */
+      /* v1.87: Varianten-Name im Foto positionierbar (Editor: edit+drag; Viewer: Text ohne Rahmen) */
       if (onVarianten) {
-        const capWrap = document.createElement('div');
-        capWrap.className = 'variant-caption-wrap' + (state.editMode ? ' is-edit' : ' is-view');
-        if (state.editMode) {
-          const inp = document.createElement('input');
-          inp.type = 'text';
-          inp.className = 'variant-caption-input';
-          inp.placeholder = 'Bezeichnung der Variante';
-          inp.value = leafCaption(cell);
-          inp.setAttribute('aria-label', 'Varianten-Bezeichnung');
-          inp.addEventListener('pointerdown', (e) => e.stopPropagation());
-          inp.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
-          inp.addEventListener('input', () => {
-            cell.caption = inp.value;
-            if (!cell.variantId) cell.variantId = uid('v');
-            syncVariantsFromPage();
-            updateVariantBar();
-            scheduleHistoryCheck(700);
-          });
-          inp.addEventListener('change', () => {
-            cell.caption = inp.value.trim();
-            inp.value = cell.caption;
-            syncVariantsFromPage();
-            updateVariantBar();
-            if (typeof historyCommit === 'function') historyCommit();
-          });
-          capWrap.appendChild(inp);
-        } else {
-          const lab = document.createElement('div');
-          lab.className = 'variant-caption-label';
-          lab.textContent = String(leafCaption(cell) || '').trim() || '—';
-          capWrap.appendChild(lab);
+        const capText = String(leafCaption(cell) || '').trim();
+        const showCap = state.editMode || !!capText;
+        if (showCap) {
+          const capWrap = document.createElement('div');
+          capWrap.className = 'variant-caption-wrap' + (state.editMode ? ' is-edit' : ' is-view');
+          if (state.editMode) {
+            const grip = document.createElement('div');
+            grip.className = 'variant-caption-drag';
+            grip.textContent = '⋮⋮ Name verschieben';
+            grip.setAttribute('aria-hidden', 'true');
+            capWrap.appendChild(grip);
+            const inp = document.createElement('input');
+            inp.type = 'text';
+            inp.className = 'variant-caption-input';
+            inp.placeholder = 'Name der Variante';
+            inp.value = leafCaption(cell);
+            inp.setAttribute('aria-label', 'Name der Variante');
+            inp.addEventListener('pointerdown', (e) => e.stopPropagation());
+            inp.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+            inp.addEventListener('input', () => {
+              cell.caption = inp.value;
+              if (!cell.variantId) cell.variantId = uid('v');
+              syncVariantsFromPage();
+              updateVariantBar();
+              scheduleHistoryCheck(700);
+            });
+            inp.addEventListener('change', () => {
+              cell.caption = inp.value.trim();
+              inp.value = cell.caption;
+              syncVariantsFromPage();
+              updateVariantBar();
+              if (typeof historyCommit === 'function') historyCommit();
+            });
+            capWrap.appendChild(inp);
+          } else {
+            const lab = document.createElement('div');
+            lab.className = 'variant-caption-label';
+            lab.textContent = capText;
+            capWrap.appendChild(lab);
+          }
+          leaf.appendChild(capWrap);
+          const place = () => applyVariantCaptionPosition(capWrap, leaf, cell);
+          place();
+          requestAnimationFrame(place);
+          if (state.editMode) bindVariantCaptionDrag(capWrap, leaf, cell);
         }
-        leaf.appendChild(capWrap);
 
         if (!state.editMode && hasPhoto) {
           leaf.classList.add('variant-tap-target');
@@ -3913,6 +4013,7 @@
         }
         if (state.photoRotateMode && hasPhoto) {
           if (e.target.closest('.cell-kamera-wrap')) return;
+          if (e.target.closest('.variant-caption-wrap')) return;
           if (e.button != null && e.button !== 0) return;
           e.preventDefault();
           e.stopPropagation();
@@ -3921,6 +4022,7 @@
         }
         if (!state.editMode || !state.splitTool) return;
         if (e.target.closest('.cell-kamera-wrap')) return;
+        if (e.target.closest('.variant-caption-wrap')) return;
         if (e.button != null && e.button !== 0) return;
         e.preventDefault();
         e.stopPropagation();
@@ -5843,12 +5945,18 @@
 
     const dir = state.splitTool === 'h' ? 'h' : 'v';
     const photo = clonePhoto(leaf.photo);
+    const aLeaf = makeLeaf(photo);
+    /* v1.87: Varianten-Metadaten (Name/Position/Id) auf der Foto-Seite behalten */
+    if (typeof leaf.caption === 'string') aLeaf.caption = leaf.caption;
+    if (typeof leaf.captionX === 'number' && isFinite(leaf.captionX)) aLeaf.captionX = leaf.captionX;
+    if (typeof leaf.captionY === 'number' && isFinite(leaf.captionY)) aLeaf.captionY = leaf.captionY;
+    if (typeof leaf.variantId === 'string' && leaf.variantId) aLeaf.variantId = leaf.variantId;
     const splitNode = {
       type: 'split',
       id: uid('s'),
       dir,
       ratio: 0.5,
-      a: makeLeaf(photo),
+      a: aLeaf,
       b: makeLeaf(null),
     };
     page.root = replaceLeafWithSplit(page.root, leafId, splitNode);
@@ -7509,6 +7617,8 @@
       }
       const leafOut = { type: 'leaf', id: cell.id, photo: outPhoto };
       if (typeof cell.caption === 'string' && cell.caption) leafOut.caption = cell.caption;
+      if (typeof cell.captionX === 'number' && isFinite(cell.captionX)) leafOut.captionX = cell.captionX;
+      if (typeof cell.captionY === 'number' && isFinite(cell.captionY)) leafOut.captionY = cell.captionY;
       if (typeof cell.variantId === 'string' && cell.variantId) leafOut.variantId = cell.variantId;
       return leafOut;
     }
@@ -8050,11 +8160,14 @@
   function normalizeCellTree(cell) {
     if (!cell) return makeLeaf(null);
     if (cell.type === 'leaf') {
+      const pos = leafCaptionPos(cell);
       return {
         type: 'leaf',
         id: cell.id || uid('l'),
         photo: normalizePhoto(cell.photo),
         caption: typeof cell.caption === 'string' ? cell.caption : '',
+        captionX: pos.x,
+        captionY: pos.y,
         variantId: (typeof cell.variantId === 'string' && cell.variantId) ? cell.variantId : null,
       };
     }

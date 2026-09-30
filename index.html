@@ -24,7 +24,7 @@
   <link rel="apple-touch-icon" sizes="152x152" href="apple-touch-icon-152.png" />
   <link rel="apple-touch-icon" sizes="120x120" href="apple-touch-icon-120.png" />
   <title>Anweisungen</title>
-  <link rel="stylesheet" href="styles.css?v=1.86" />
+  <link rel="stylesheet" href="styles.css?v=1.87" />
 </head>
 <body>
   <div class="app" id="app">
@@ -50,7 +50,7 @@
       </div>
       <div class="top-actions">
         <div class="edit-tools" id="editTools" aria-label="Bearbeitungswerkzeuge">
-          <div class="tool-dual layout-only-tool" role="group" aria-label="Unterteilung">
+          <div class="tool-dual layout-only-tool varianten-ok-tool" role="group" aria-label="Unterteilung">
             <button type="button" class="btn sm icon-btn tool-dual-btn" id="toolSplitV" title="Vertikal teilen" aria-label="Vertikal teilen"><svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="5.5" width="15" height="13" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 5.5v13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
             <button type="button" class="btn sm icon-btn tool-dual-btn" id="toolSplitH" title="Horizontal teilen" aria-label="Horizontal teilen"><svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="5.5" width="15" height="13" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M4.5 12h15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
           </div>
@@ -169,7 +169,7 @@
           oder als Home-Bildschirm-App nutzen. Nach dem ersten Laden hält der Service Worker die App-Shell offline bereit. Nach Viewport-/Statusleisten-Updates die Home-Bildschirm-App neu anlegen. Kein Backend, kein Upload-Link nötig. Projektdateien (<code>.beak</code>) werden nicht in den Offline-Cache gelegt.
         </div>
       </details>
-      <div class="drawer-version" id="appVersion">Anweisungen · Version 1.86</div>
+      <div class="drawer-version" id="appVersion">Anweisungen · Version 1.87</div>
     </nav>
 
     <main class="page" id="pageArea">
@@ -195,7 +195,7 @@
         <button type="button" class="btn touch welcome-btn welcome-tour-btn" id="welcomeTourBtn">Neu hier? Tour anzeigen</button>
       </div>
       <p class="welcome-hint">Projekte speichern Sie als <code>.beak</code>-Datei. Der letzte Stand wird auf diesem Gerät automatisch wiederhergestellt.</p>
-      <p class="welcome-version" id="welcomeVersion">Anweisungen · Version 1.86</p>
+      <p class="welcome-version" id="welcomeVersion">Anweisungen · Version 1.87</p>
     </div>
   </div>
 
@@ -305,6 +305,6 @@
 
   <script src="vendor/jszip.min.js"></script>
   <script src="vendor/pdf-lib.min.js"></script>
-  <script src="app.js?v=1.86"></script>
+  <script src="app.js?v=1.87"></script>
 </body>
 </html>
