@@ -265,11 +265,8 @@
     top = Math.min(Math.max(0, top), maxT);
     capWrap.style.left = left + 'px';
     capWrap.style.top = top + 'px';
-    /* Persist geklemmte Fraktion, falls Größe die alte Position verdrängt */
-    if (lw > 0 && lh > 0) {
-      cell.captionX = left / lw;
-      cell.captionY = top / lh;
-    }
+    /* v1.92: Position nur beim Ziehen speichern — nicht hier überschreiben
+       (Editor-Wrap ≠ Viewer-Wrap → sonst springt der Text). */
   }
 
   function bindVariantCaptionDrag(capWrap, leafEl, cell) {
@@ -585,13 +582,12 @@
   }
 
   function tryEnterVariantFromTapTarget(target) {
+    /* v1.92: Nur Viewer — Editor darf Varianten-Fotos tippen ohne Sprung */
+    if (state.editMode) return false;
     const cell = leafModelFromEventTarget(target);
     if (!cell || cell.type !== 'leaf') return false;
     const hasPhoto = !!(cell.photo && cell.photo.src);
     if (!hasPhoto) return false;
-    if (state.editMode && (state.splitTool || state.photoMoveMode || state.photoRotateMode || state.teleportMode)) {
-      return false;
-    }
     enterVariantFromLeaf(cell);
     return true;
   }
@@ -644,10 +640,15 @@
     const clone = {
       id: uid('p'),
       kind: 'layout',
-      root: cloneCell(page.root),
-      annotations: (page.annotations || []).map((a) => ({ ...a, id: uid('a') })),
+      root: cloneCellFreshIds(page.root),
+      annotations: (page.annotations || []).map((a) => {
+        const na = { ...a, id: uid('a') };
+        if (a && a.photo) na.photo = clonePhoto(a.photo);
+        return na;
+      }),
       highlight: !!page.highlight,
-      highlightLeafIds: page.highlight ? normalizeHighlightLeafIds(page).slice() : [],
+      /* Leaf-IDs neu → Highlight-Refs der Vorlage nicht mitnehmen */
+      highlightLeafIds: [],
       pageGroupId: group,
       variantScope: variantId,
     };
@@ -1599,7 +1600,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.91';
+  const APP_VERSION = '1.92';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -2925,9 +2926,14 @@
     if (!leafId) return null;
     const pages = state.doc && state.doc.pages;
     if (!pages) return null;
+    const cur = currentPage();
+    if (cur && cur.root) {
+      const leaf = findLeaf(cur.root, leafId);
+      if (leaf) return leaf;
+    }
     for (let i = 0; i < pages.length; i++) {
       const page = pages[i];
-      if (!page || !page.root) continue;
+      if (!page || !page.root || page === cur) continue;
       const leaf = findLeaf(page.root, leafId);
       if (leaf) return leaf;
     }
@@ -2954,8 +2960,14 @@
     if (!id) return null;
     const pages = state.doc && state.doc.pages;
     if (!pages) return null;
+    const cur = currentPage();
+    const ordered = [];
+    if (cur) ordered.push(cur);
     for (let i = 0; i < pages.length; i++) {
-      const page = pages[i];
+      if (pages[i] && pages[i] !== cur) ordered.push(pages[i]);
+    }
+    for (let i = 0; i < ordered.length; i++) {
+      const page = ordered[i];
       if (!page || isFixedPage(page)) continue;
       if (page.root) {
         const leaf = findLeaf(page.root, id);
@@ -4269,28 +4281,17 @@
           if (state.editMode) bindVariantCaptionDrag(capWrap, leaf, cell);
         }
 
-        if (hasPhoto) {
-          const canStart =
-            !state.splitTool && !state.photoMoveMode && !state.photoRotateMode && !state.teleportMode;
-          if (canStart || !state.editMode) {
-            leaf.classList.add('variant-tap-target');
-            const onPick = (e) => {
-              if (trackDragDidPageSwipe) return;
-              /* Caption/Kamera: nicht starten (außer Viewer-Caption hat pointer-events:none) */
-              if (e.target.closest('.variant-caption-input') || e.target.closest('.variant-kuerzel-input') || e.target.closest('.variant-caption-drag') || e.target.closest('.variant-kuerzel-wrap')) return;
-              if (e.target.closest('.cell-kamera-wrap')) return;
-              if (state.editMode && (state.splitTool || state.photoMoveMode || state.photoRotateMode || state.teleportMode)) return;
-              e.stopPropagation();
-              enterVariantFromLeaf(cell);
-            };
-            leaf.addEventListener('click', onPick);
-            /* Extra: pointerup falls click durch Capture verloren geht */
-            leaf.addEventListener('pointerup', (e) => {
-              if (e.button != null && e.button !== 0) return;
-              /* nur wenn Viewport keinen Drag gestartet hat – sonst onViewportPointerUp */
-              if (trackDrag) return;
-            });
-          }
+        if (hasPhoto && !state.editMode) {
+          /* v1.92: Tap→Variante nur im Viewer */
+          leaf.classList.add('variant-tap-target');
+          const onPick = (e) => {
+            if (trackDragDidPageSwipe) return;
+            if (e.target.closest('.variant-caption-wrap')) return;
+            if (e.target.closest('.cell-kamera-wrap')) return;
+            e.stopPropagation();
+            enterVariantFromLeaf(cell);
+          };
+          leaf.addEventListener('click', onPick);
         }
       }
 
@@ -7093,7 +7094,15 @@
   function setPhoto(leafId, dataUrl) {
     let found = false;
     let isClipboard = false;
-    for (const page of state.doc.pages) {
+    /* v1.92: zuerst aktuelle Seite — sonst trifft gleiche leafId auf Shared/Geschwister */
+    const pages = state.doc.pages || [];
+    const cur = currentPage();
+    const ordered = [];
+    if (cur) ordered.push(cur);
+    for (const page of pages) {
+      if (page && page !== cur) ordered.push(page);
+    }
+    for (const page of ordered) {
       if (isFixedPage(page)) continue;
       if (page.root) {
         const leaf = findLeaf(page.root, leafId);
@@ -7933,6 +7942,33 @@
   const CHANGE_LOG_MAX = 2000;
   const DEVICE_NICK_KEY = 'anweisungen-device-nickname';
   let changeLogQuiet = false;
+
+  /** v1.92: Tiefenkopie mit neuen Leaf/Split-IDs — Spezialseiten teilen keine leafId mit Shared. */
+  function cloneCellFreshIds(cell) {
+    if (!cell) return makeLeaf(null);
+    if (cell.type === 'leaf') {
+      const leafOut = {
+        type: 'leaf',
+        id: uid('l'),
+        photo: clonePhoto(cell.photo),
+        caption: typeof cell.caption === 'string' ? cell.caption : '',
+        captionShort: typeof cell.captionShort === 'string' ? cell.captionShort : '',
+        captionX: (typeof cell.captionX === 'number' && isFinite(cell.captionX)) ? cell.captionX : 0.05,
+        captionY: (typeof cell.captionY === 'number' && isFinite(cell.captionY)) ? cell.captionY : 0.78,
+        variantId: (typeof cell.variantId === 'string' && cell.variantId) ? cell.variantId : null,
+      };
+      return leafOut;
+    }
+    return {
+      type: 'split',
+      id: uid('s'),
+      dir: cell.dir === 'h' ? 'h' : 'v',
+      ratio: typeof cell.ratio === 'number' ? cell.ratio : 0.5,
+      a: cloneCellFreshIds(cell.a),
+      b: cloneCellFreshIds(cell.b),
+    };
+  }
+
 
   function getDeviceName() {
     try {

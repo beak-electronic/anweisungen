@@ -2,7 +2,15 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.91
+**Version:** 1.92
+
+## Neu in 1.92
+
+- **Editor Seite 1:** Tippen auf Varianten-Foto wählt/springt nicht mehr (nur noch im Viewer → Arbeitsschritte).
+- **Caption-Position:** Editor- und Viewer-Platzierung stimmen überein (Position wird nicht mehr durch unterschiedlich große Overlays überschrieben; Griff „Verschieben“ liegt oberhalb der Box).
+- **Aktiv-Zeile:** „Aktiv: …“ in der Varianten-Leiste hellblau (`#7dd3fc`) statt pink.
+- **+ Variante / Fotos:** Spezialseiten bekommen eigene Leaf-IDs; Foto-Ersetzen trifft die aktive Spezialseite, nicht Shared/andere Varianten.
+- **Service Worker:** Cache `anweisungen-shell-v1.92` und `?v=1.92`.
 
 ## Neu in 1.91
 

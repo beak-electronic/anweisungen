@@ -3942,6 +3942,12 @@ html.orient-portrait.app-h-fixed .page-viewport {
   opacity: 0.95;
 }
 .variant-caption-wrap.is-edit .variant-caption-drag {
+  /* v1.92: Griff oberhalb — gleiche Top-Left-Ankerposition wie Viewer-Label */
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3949,7 +3955,7 @@ html.orient-portrait.app-h-fixed .page-viewport {
   font: 600 0.7rem/1 system-ui, sans-serif;
   color: #c8d0dc;
   letter-spacing: 0.02em;
-  padding: 0 2px 4px;
+  padding: 2px;
   user-select: none;
 }
 .variant-caption-wrap.is-view {
@@ -4096,19 +4102,18 @@ html.orient-portrait.app-h-fixed .page-viewport {
   line-height: 1.2;
 }
 .variant-bar-info.is-multi,
-.variant-bar-status.is-multi .variant-bar-info,
-.variant-bar-status.is-multi .variant-active-label {
-  color: #f59e0b; /* v1.89 orange */
+.variant-bar-status.is-multi .variant-bar-info {
+  color: #f59e0b; /* v1.89 orange — nur Hinweis „Mehrere Varianten…“ */
   font-weight: 800;
 }
 .variant-active-label {
   font-size: 0.82rem;
-  color: var(--accent, #dd007a);
+  color: #7dd3fc; /* v1.92 hellblau */
   font-weight: 700;
   line-height: 1.2;
 }
 .variant-bar-status.is-multi .variant-active-label {
-  color: #f59e0b;
+  color: #7dd3fc; /* Aktiv bleibt hellblau */
 }
 .variant-pick-item.is-current,
 .variant-pick-item:disabled {
