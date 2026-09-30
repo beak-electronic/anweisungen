@@ -2,7 +2,15 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.81
+**Version:** 1.82
+
+## Neu in 1.82
+
+- **Aspect / Anzeige ohne Stretch:** Logische Seite jetzt **1156×≈783** (Aspect **1180×800** = iPad Air Landscape nutzbar, minus ~20 pt opake Statusleiste). **Fenster** auf iPad Air ohne schwarze Seitenbalken (nur Statusleiste oben schwarz ok). **Fill** skaliert wieder **uniform** (kein sx/sy-Stretch aus 1.81); `--page-ref-h` passt die logische Höhe an die Bühne an → volle Fläche ohne Verzerrung. Alte `.beak` auto-adapt (%-Koordinaten).
+- **Highlight Mehrfach-Fotos:** Highlight → Fotofelder antippen (mehrere pro Seite, Toggle) → Fertig. Schwarze Trennlinien bleiben unmaskiert. Persistenz: `highlightLeafIds[]` in `.beak` (Migration von `highlightLeafId`).
+- **Hochformat-Scroll:** Alle Seiten stapeln und scrollen (nicht nur 1+2 dann schwarz). Ursache: `.page-slide.far` + `content-visibility` und `scrollTop`-Reset – beides im Portrait abgeschaltet.
+- **Preserve:** pdf.js Legacy, `.beak` v5, kein Stretch, opake Statusleiste `black`, Editor im Hochformat ausgeblendet.
+- **Service Worker:** Cache `anweisungen-shell-v1.82` und `?v=1.82`.
 
 ## Neu in 1.81
 

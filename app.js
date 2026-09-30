@@ -3,14 +3,14 @@
 
   const STORAGE_KEY = 'seitenlayout-v2';
   const ASPECT_W = 1180;
-  const ASPECT_H = 820;
-  /* v1.17: Seiteninhalt wird in einem FESTEN logischen Koordinatensystem gelayoutet und per
-     transform: scale() auf die tatsächliche Bühnengröße gebracht → Schriften, Linien, Pfeile,
-     Labels, Griffe haben auf jedem Gerät (iPad, Windows, Mac, beliebige DPR) dieselben
-     Proportionen. Referenz = Bernds Mac-Screenshot (installierte App, Bühne 1156×803 pt):
-     BEAK-Label ≈ 2,98 % der Seitenbreite hoch, Zellrand 2 mm ≈ 0,65 %. */
+  /* v1.82: Aspect = iPad Air Landscape nutzbare Fläche (1180×820 minus ~20pt opake Statusleiste).
+     Fenster füllt damit ohne seitliche Letterbox; Fill skaliert uniform (kein sx/sy-Stretch). */
+  const ASPECT_H = 800;
+  /* v1.17/v1.82: Seiteninhalt in festem logischem Koordinatensystem, per transform: scale()
+     auf die Bühne. Referenzbreite 1156 (Bernd Mac-Screenshot); Höhe aus Aspect 1180×800
+     → ≈ 783,05. Alte .beak (%-Koordinaten) passen sich automatisch an. */
   const PAGE_REF_W = 1156;
-  const PAGE_REF_H = PAGE_REF_W * ASPECT_H / ASPECT_W; // ≈ 803.32
+  const PAGE_REF_H = PAGE_REF_W * ASPECT_H / ASPECT_W; // ≈ 783.05
   const SNAP_MS = 320;
   const VELOCITY_THRESHOLD = 0.55;
   const PHOTO_SCALE_MIN = 1;
@@ -97,7 +97,7 @@
   }
 
   function makePage() {
-    return { id: uid('p'), kind: 'layout', root: makeLeaf(null), annotations: [], highlight: false, highlightLeafId: null };
+    return { id: uid('p'), kind: 'layout', root: makeLeaf(null), annotations: [], highlight: false, highlightLeafIds: [] };
   }
 
   function makeFehlerRow(date, description, cause, remedy, sourcePageId) {
@@ -797,7 +797,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.81';
+  const APP_VERSION = '1.82';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -2794,9 +2794,12 @@
       Browser (content-visibility) → weniger Grafikspeicher und ruhigeres Wischen auf dem iPad. */
   function updateNearSlides() {
     if (!el.pageTrack) return;
+    /* v1.82: im Hochformat alle Seiten stapeln – kein content-visibility:hidden (.far),
+       sonst nur Seite 1+2 sichtbar und danach schwarz. */
+    const portrait = document.documentElement.classList.contains('orient-portrait');
     const idx = state.doc.pageIndex;
     el.pageTrack.querySelectorAll(':scope > .page-slide').forEach((sl, i) => {
-      sl.classList.toggle('far', Math.abs(i - idx) > 1);
+      sl.classList.toggle('far', !portrait && Math.abs(i - idx) > 1);
     });
   }
 
@@ -4807,11 +4810,27 @@
     return panel;
   }
 
-  /* ---- v1.67/v1.81 Highlight-Schleier (nur gewähltes Fotofeld) ---------------- */
-  function pageHighlightLeafId(page) {
-    if (!page || !page.highlight) return null;
-    const id = page.highlightLeafId;
-    return (typeof id === 'string' && id) ? id : null;
+  /* ---- v1.67/v1.81/v1.82 Highlight-Schleier (ein oder mehrere Fotofelder) -------- */
+  function normalizeHighlightLeafIds(src) {
+    const out = [];
+    if (!src || typeof src !== 'object') return out;
+    const raw = Array.isArray(src.highlightLeafIds) ? src.highlightLeafIds : null;
+    if (raw) {
+      for (const id of raw) {
+        if (typeof id === 'string' && id && out.indexOf(id) < 0) out.push(id);
+      }
+    }
+    /* v1.81 → v1.82: einzelnes highlightLeafId migrieren */
+    if (!out.length && typeof src.highlightLeafId === 'string' && src.highlightLeafId) {
+      out.push(src.highlightLeafId);
+    }
+    return out;
+  }
+
+  function pageHighlightLeafIds(page) {
+    if (!page || !page.highlight) return [];
+    if (!Array.isArray(page.highlightLeafIds)) page.highlightLeafIds = normalizeHighlightLeafIds(page);
+    return page.highlightLeafIds;
   }
 
   function pageHasHighlight(page) {
@@ -4854,16 +4873,20 @@
   }
 
   function buildHighlightVeil(page) {
-    const leafId = pageHighlightLeafId(page);
-    if (!leafId) return null;
+    const leafIds = pageHighlightLeafIds(page);
+    if (!leafIds.length) return null;
     const gaps = highlightGapPct();
-    const leafPct = leafRectPercentInRoot(page.root, leafId, gaps.w, gaps.h);
-    if (!leafPct || leafPct.w < 0.2 || leafPct.h < 0.2) return null;
+    const rects = [];
+    for (const leafId of leafIds) {
+      const leafPct = leafRectPercentInRoot(page.root, leafId, gaps.w, gaps.h);
+      if (leafPct && leafPct.w >= 0.2 && leafPct.h >= 0.2) rects.push(leafPct);
+    }
+    if (!rects.length) return null;
 
     const veil = document.createElement('div');
     veil.className = 'highlight-veil';
     veil.setAttribute('aria-hidden', 'true');
-    veil.dataset.highlightLeafId = leafId;
+    veil.dataset.highlightLeafIds = leafIds.join(',');
     const svgNS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(svgNS, 'svg');
     svg.setAttribute('width', '100%');
@@ -4875,14 +4898,16 @@
     const mid = 'hlmask-' + String(page && page.id ? page.id : 'x').replace(/[^a-zA-Z0-9_-]/g, '');
     mask.setAttribute('id', mid);
     mask.setAttribute('maskUnits', 'userSpaceOnUse');
-    /* Weiß nur im Fotofeld – schwarze Split-Lücken bleiben unberührt */
-    const full = document.createElementNS(svgNS, 'rect');
-    full.setAttribute('x', String(leafPct.x));
-    full.setAttribute('y', String(leafPct.y));
-    full.setAttribute('width', String(leafPct.w));
-    full.setAttribute('height', String(leafPct.h));
-    full.setAttribute('fill', '#fff');
-    mask.appendChild(full);
+    /* Weiß nur in gewählten Fotofeldern – schwarze Split-Lücken bleiben unberührt */
+    for (const leafPct of rects) {
+      const full = document.createElementNS(svgNS, 'rect');
+      full.setAttribute('x', String(leafPct.x));
+      full.setAttribute('y', String(leafPct.y));
+      full.setAttribute('width', String(leafPct.w));
+      full.setAttribute('height', String(leafPct.h));
+      full.setAttribute('fill', '#fff');
+      mask.appendChild(full);
+    }
     const anns = (page && Array.isArray(page.annotations)) ? page.annotations : [];
     for (const a of anns) {
       if (!a || (a.type !== 'rect' && a.type !== 'ellipse')) continue;
@@ -4906,11 +4931,12 @@
     }
     defs.appendChild(mask);
     svg.appendChild(defs);
+    /* Volle Fläche + Maske: Schleier nur auf Fotofeldern, Trennlinien bleiben schwarz */
     const cover = document.createElementNS(svgNS, 'rect');
-    cover.setAttribute('x', String(leafPct.x));
-    cover.setAttribute('y', String(leafPct.y));
-    cover.setAttribute('width', String(leafPct.w));
-    cover.setAttribute('height', String(leafPct.h));
+    cover.setAttribute('x', '0');
+    cover.setAttribute('y', '0');
+    cover.setAttribute('width', '100');
+    cover.setAttribute('height', '100');
     cover.setAttribute('fill', 'rgba(255,255,255,0.5)');
     cover.setAttribute('mask', 'url(#' + mid + ')');
     svg.appendChild(cover);
@@ -4933,16 +4959,19 @@
     if (!page || isFixedPage(page)) return;
     page.highlight = !page.highlight;
     if (!page.highlight) {
-      page.highlightLeafId = null;
-    } else if (!pageHighlightLeafId(page)) {
-      try { flash('Highlight: bitte Fotofeld antippen', 2800); } catch (_) {}
+      page.highlightLeafIds = [];
+    } else {
+      if (!Array.isArray(page.highlightLeafIds)) page.highlightLeafIds = normalizeHighlightLeafIds(page);
+      if (!page.highlightLeafIds.length) {
+        try { flash('Highlight: Fotofelder antippen, dann Fertig', 3200); } catch (_) {}
+      }
     }
     updateHighlightToolUI();
     renderAll();
     if (typeof historyCommit === 'function') historyCommit();
   }
 
-  /** v1.81: bei aktivem Highlight Fotofeld antippen → Schleier nur dort */
+  /** v1.81/v1.82: bei aktivem Highlight Fotofelder antippen – mehrere möglich (Toggle) */
   function trySetHighlightLeafFromTarget(target) {
     if (!state.editMode || !target || !target.closest) return false;
     const page = currentPage();
@@ -4952,52 +4981,67 @@
     if (!leafEl) return false;
     const leafId = leafEl.dataset.leafId;
     if (!leafId || !findLeaf(page.root, leafId)) return false;
-    if (page.highlightLeafId === leafId) return false;
-    page.highlightLeafId = leafId;
+    if (!Array.isArray(page.highlightLeafIds)) page.highlightLeafIds = normalizeHighlightLeafIds(page);
+    const idx = page.highlightLeafIds.indexOf(leafId);
+    if (idx >= 0) {
+      page.highlightLeafIds.splice(idx, 1);
+      try { flash('Highlight-Fotofeld entfernt', 1400); } catch (_) {}
+    } else {
+      page.highlightLeafIds.push(leafId);
+      try {
+        flash(
+          page.highlightLeafIds.length === 1
+            ? 'Highlight-Fotofeld gesetzt – weitere antippen oder Fertig'
+            : (page.highlightLeafIds.length + ' Highlight-Fotofelder'),
+          1800
+        );
+      } catch (_) {}
+    }
     updateHighlightToolUI();
     renderAll();
     if (typeof historyCommit === 'function') historyCommit();
-    try { flash('Highlight-Fotofeld gesetzt', 1600); } catch (_) {}
     return true;
   }
 
   function drawHighlightVeilCanvas(ctx, page, annotations, W, H, layoutBox) {
-    /* Weiße 50%-Abdeckung nur über dem gewählten Fotofeld; Split-Lücken bleiben schwarz */
-    const leafId = pageHighlightLeafId(page);
-    if (!leafId || !page || !page.root) return;
+    /* Weiße 50%-Abdeckung über allen gewählten Fotofeldern; Split-Lücken bleiben schwarz */
+    const leafIds = pageHighlightLeafIds(page);
+    if (!leafIds.length || !page || !page.root) return;
     const gaps = highlightGapPct();
-    const leafPct = leafRectPercentInRoot(page.root, leafId, gaps.w, gaps.h);
-    if (!leafPct) return;
     const bx = layoutBox && typeof layoutBox.x === 'number' ? layoutBox.x : 0;
     const by = layoutBox && typeof layoutBox.y === 'number' ? layoutBox.y : 0;
     const bw = layoutBox && typeof layoutBox.w === 'number' ? layoutBox.w : W;
     const bh = layoutBox && typeof layoutBox.h === 'number' ? layoutBox.h : H;
-    const lx = bx + (leafPct.x / 100) * bw;
-    const ly = by + (leafPct.y / 100) * bh;
-    const lw = (leafPct.w / 100) * bw;
-    const lh = (leafPct.h / 100) * bh;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(lx, ly, lw, lh);
-    ctx.clip();
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.fillRect(lx, ly, lw, lh);
-    ctx.globalCompositeOperation = 'destination-out';
-    for (const a of annotations || []) {
-      if (!a || (a.type !== 'rect' && a.type !== 'ellipse')) continue;
-      const x = (a.x / 100) * W;
-      const y = (a.y / 100) * H;
-      const w = (a.w / 100) * W;
-      const h = (a.h / 100) * H;
-      if (a.type === 'rect') {
-        ctx.fillRect(x, y, w, h);
-      } else {
-        ctx.beginPath();
-        ctx.ellipse(x + w / 2, y + h / 2, Math.max(1, w / 2), Math.max(1, h / 2), 0, 0, Math.PI * 2);
-        ctx.fill();
+    for (const leafId of leafIds) {
+      const leafPct = leafRectPercentInRoot(page.root, leafId, gaps.w, gaps.h);
+      if (!leafPct) continue;
+      const lx = bx + (leafPct.x / 100) * bw;
+      const ly = by + (leafPct.y / 100) * bh;
+      const lw = (leafPct.w / 100) * bw;
+      const lh = (leafPct.h / 100) * bh;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(lx, ly, lw, lh);
+      ctx.clip();
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fillRect(lx, ly, lw, lh);
+      ctx.globalCompositeOperation = 'destination-out';
+      for (const a of annotations || []) {
+        if (!a || (a.type !== 'rect' && a.type !== 'ellipse')) continue;
+        const x = (a.x / 100) * W;
+        const y = (a.y / 100) * H;
+        const w = (a.w / 100) * W;
+        const h = (a.h / 100) * H;
+        if (a.type === 'rect') {
+          ctx.fillRect(x, y, w, h);
+        } else {
+          ctx.beginPath();
+          ctx.ellipse(x + w / 2, y + h / 2, Math.max(1, w / 2), Math.max(1, h / 2), 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
+      ctx.restore();
     }
-    ctx.restore();
   }
 
   function renderPageSlide(page, index) {
@@ -5074,15 +5118,16 @@
     return slide;
   }
 
-  /** v1.17/v1.26/v1.31/v1.50/v1.81: Maßstab logische Seite (PAGE_REF_W×PAGE_REF_H) → Bühne.
-   *  stage-ipad-fill: Width+Height-Fill (nicht-uniform) – volle Breite/Höhe, kein
-   *    Letterbox links/rechts, pinker Titel + Seite sichtbar (kein Crop wie Cover).
-   *    Logischer Raum bleibt 1156×803; --page-scale-x/y mappen auf die Bühne.
+  /** v1.17/v1.26/v1.31/v1.50/v1.82: Maßstab logische Seite (PAGE_REF_W×PAGE_REF_H) → Bühne.
+   *  Aspect 1180×800 = iPad Air Landscape nutzbar (−Statusleiste) → Fenster ohne Seitenbalken.
+   *  stage-ipad-fill: UNIFORM scale (kein sx≠sy-Stretch). Logische Höhe kann per
+   *    --page-ref-h an die Bühnen-Aspect angepasst werden → füllt ohne Verzerrung/Letterbox.
    *  Runtime-Scale: bestehende .beak auto-adaptieren (Öffnen/Resize).
-   *  stage-ipad-window / Desktop / Portrait-Stapel: width-only (Letterbox ok). */
+   *  stage-ipad-window / Desktop / Portrait-Stapel: width-only, uniform. */
   let pageScaleValue = 0;
   let pageScaleXValue = 0;
   let pageScaleYValue = 0;
+  let pageRefHValue = 0;
   function updatePageScale() {
     if (!el.pageTrack) return;
     const stage = el.pageTrack.querySelector('.stage');
@@ -5093,35 +5138,37 @@
     if (!w) return;
     const fill = document.documentElement.classList.contains('stage-ipad-fill')
       && !document.documentElement.classList.contains('orient-portrait');
-    let sx;
-    let sy;
-    if (fill) {
-      if (!h) return;
-      /* v1.81: Fill = volle Breite und Höhe (Stretch), kein seitliches Letterbox */
-      sx = w / PAGE_REF_W;
-      sy = h / PAGE_REF_H;
-    } else {
-      sx = w / PAGE_REF_W;
-      sy = sx;
+    let pageH = PAGE_REF_H;
+    if (fill && h > 0) {
+      /* v1.82: logische Höhe an Bühnen-Aspect → uniform scale füllt exakt, kein Stretch */
+      pageH = PAGE_REF_W * (h / w);
     }
+    const sx = w / PAGE_REF_W;
+    const sy = sx; /* immer uniform */
     const kx = Math.round(sx * 100000) / 100000;
-    const ky = Math.round(sy * 100000) / 100000;
-    const k = kx; /* UI/Handles: Breitenmaßstab */
-    if (kx === pageScaleXValue && ky === pageScaleYValue && k === pageScaleValue) return;
+    const ky = kx;
+    const k = kx;
+    const ph = Math.round(pageH * 1000) / 1000;
+    if (kx === pageScaleXValue && ky === pageScaleYValue && k === pageScaleValue && ph === pageRefHValue) return;
     pageScaleValue = k;
     pageScaleXValue = kx;
     pageScaleYValue = ky;
+    pageRefHValue = ph;
     el.pageTrack.style.setProperty('--page-scale', String(k));
     el.pageTrack.style.setProperty('--page-scale-x', String(kx));
     el.pageTrack.style.setProperty('--page-scale-y', String(ky));
+    el.pageTrack.style.setProperty('--page-ref-h', ph + 'px');
     document.documentElement.style.setProperty('--page-scale-ui', String(k));
+    document.documentElement.style.setProperty('--page-ref-h', ph + 'px');
   }
 
   function pruneHighlightLeafIds() {
     try {
       for (const page of state.doc.pages || []) {
-        if (!page || page.kind !== 'layout' || !page.highlightLeafId) continue;
-        if (!findLeaf(page.root, page.highlightLeafId)) page.highlightLeafId = null;
+        if (!page || page.kind !== 'layout') continue;
+        const ids = normalizeHighlightLeafIds(page);
+        page.highlightLeafIds = ids.filter((id) => !!findLeaf(page.root, id));
+        if (page.highlightLeafId != null) delete page.highlightLeafId;
       }
     } catch (_) {}
   }
@@ -7170,8 +7217,10 @@
       }
       if (!!pp.highlight !== !!np.highlight) {
         actions.push({ pageIndex: ni, action: np.highlight ? 'Highlight eingeschaltet' : 'Highlight ausgeschaltet' });
-      } else if (pp.highlight && (pp.highlightLeafId || null) !== (np.highlightLeafId || null)) {
-        actions.push({ pageIndex: ni, action: 'Highlight-Fotofeld geändert' });
+      } else if (pp.highlight) {
+        const a = normalizeHighlightLeafIds(pp).slice().sort().join('\0');
+        const b = normalizeHighlightLeafIds(np).slice().sort().join('\0');
+        if (a !== b) actions.push({ pageIndex: ni, action: 'Highlight-Fotofelder geändert' });
       }
       const prevPhotos = collectLeafPhotos(pp.root);
       const nextPhotos = collectLeafPhotos(np.root);
@@ -7329,8 +7378,9 @@
       annotations: (p.annotations || []).map((a) => serializeAnnotation(a, opts)),
     };
     if (p.highlight) out.highlight = true; /* v1.67 */
-    if (p.highlight && typeof p.highlightLeafId === 'string' && p.highlightLeafId) {
-      out.highlightLeafId = p.highlightLeafId; /* v1.81 */
+    if (p.highlight) {
+      const ids = normalizeHighlightLeafIds(p);
+      if (ids.length) out.highlightLeafIds = ids.slice(); /* v1.82 multi-leaf */
     }
     const embed = normalizeFehlerEmbed(p.fehlerEmbed);
     if (embed) out.fehlerEmbed = { rowIds: embed.rowIds.slice() };
@@ -7414,9 +7464,7 @@
           ? p.annotations.map((a) => normalizeAnnotation(a)).filter(Boolean)
           : [],
         highlight: !!p.highlight,
-        highlightLeafId: (p.highlight && typeof p.highlightLeafId === 'string' && p.highlightLeafId)
-          ? p.highlightLeafId
-          : null,
+        highlightLeafIds: p.highlight ? normalizeHighlightLeafIds(p) : [],
       };
       const embed = normalizeFehlerEmbed(p.fehlerEmbed);
       if (embed) layoutPage.fehlerEmbed = embed;
@@ -10490,10 +10538,12 @@
      overflow:hidden-Containers (z. B. durch Fokus/scrollIntoView) verschob die Seite
      seitlich (schwarzer Rand). Scroll-Offsets immer auf 0 halten. */
   function resetPageScrollOffsets() {
+    const portrait = document.documentElement.classList.contains('orient-portrait');
     for (const n of [el.pageViewport, el.pageArea, el.app]) {
       if (!n) continue;
       if (n.scrollLeft) n.scrollLeft = 0;
-      if (n.scrollTop) n.scrollTop = 0;
+      /* v1.82: Hochformat = vertikaler Seitenstapel – scrollTop nicht killen */
+      if (!portrait && n.scrollTop) n.scrollTop = 0;
     }
   }
   [el.pageViewport, el.pageArea, el.app].forEach((n) => {
@@ -11443,16 +11493,16 @@
     const m = mode === 'window' ? 'window' : 'fill';
     try { localStorage.setItem(DISPLAY_MODE_KEY, m); } catch (_) {}
     updateDisplayModeUI();
-    pageScaleValue = 0; pageScaleXValue = 0; pageScaleYValue = 0; /* force updatePageScale */
+    pageScaleValue = 0; pageScaleXValue = 0; pageScaleYValue = 0; pageRefHValue = 0; /* force updatePageScale */
     try { fixStandaloneViewport(); } catch (_) {}
   }
 
-  /* v1.22/v1.26/v1.31/v1.50/v1.81: iPad-Standalone → stage-ipad-fill (Width+Height-Fill) oder stage-ipad-window.
+  /* v1.22/v1.26/v1.31/v1.50/v1.82: iPad-Standalone → stage-ipad-fill (uniform Fill) oder stage-ipad-window.
      Desktop/PC → keine iPad-Klassen: Seite einpassen. Preference trotzdem speicherbar.
      v1.26: visualViewport bevorzugen; --app-h nie größer als sichtbar.
      v1.36: Während Tastatur-Eingabe Layout-Größe einfrieren (kein Shrink aus vv.height) –
              gilt für Fill und Fenster; Sichtbarkeit über updateKbAvoid (translateY).
-     v1.81: Fill ohne seitliches Letterbox (sx/sy); Fenster darf Letterbox; schlanker Inset. */
+     v1.82: Fill uniform (kein Stretch); Aspect 1180×800 → Fenster iPad Air ohne Seitenbalken; schlanker Inset. */
   let lastGoodAppH = '';
   let lastGoodAppW = '';
   function fixStandaloneViewport() {
@@ -11555,9 +11605,10 @@
     } else if (was || !port) {
       try { applyTrackTransform(baseOffsetForIndex(state.doc.pageIndex), false); } catch (_) {}
     }
-    pageScaleValue = 0; pageScaleXValue = 0; pageScaleYValue = 0;
+    pageScaleValue = 0; pageScaleXValue = 0; pageScaleYValue = 0; pageRefHValue = 0;
     try { updatePageScale(); } catch (_) {}
     try { scheduleViewerChromeCompact(); } catch (_) {}
+    try { if (document.documentElement.classList.contains('orient-portrait')) updateNearSlides(); } catch (_) {}
   }
   updateOrientationLayout();
   window.addEventListener('orientationchange', () => {
