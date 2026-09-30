@@ -451,6 +451,39 @@
     return (state.doc.pages || []).filter((p) => !isFixedPage(p) && pageGroupIdOf(p) === groupId);
   }
 
+  /** v1.89: Anzahl Varianten-Versionen einer Übersichtskachel (≥2 → Balken anzeigen). */
+  function overviewVariantBarCount(page) {
+    if (!page) return 0;
+    if (isVariantenPage(page)) {
+      try {
+        syncVariantsFromPage();
+        const n = variantsList().length;
+        return n >= 2 ? n : 0;
+      } catch (_) {
+        return 0;
+      }
+    }
+    if (isFixedPage(page) || isIndexPage(page) || isFehlerPage(page)) return 0;
+    const siblings = pagesSharingGroup(pageGroupIdOf(page));
+    return siblings.length >= 2 ? siblings.length : 0;
+  }
+
+  function appendOverviewVariantBars(btn, page) {
+    if (!btn || !page) return;
+    const n = overviewVariantBarCount(page);
+    if (n < 2) return;
+    const wrap = document.createElement('span');
+    wrap.className = 'overview-variant-bars';
+    wrap.setAttribute('aria-label', n + ' Varianten');
+    wrap.title = n + ' Varianten für diese Seite';
+    for (let i = 0; i < n; i++) {
+      const bar = document.createElement('span');
+      bar.className = 'overview-variant-bar';
+      wrap.appendChild(bar);
+    }
+    btn.appendChild(wrap);
+  }
+
   function getActiveVariantStueckliste() {
     if (hasMultipleVariants() && state.activeVariantId) {
       const m = state.variantStuecklisten || {};
@@ -469,8 +502,12 @@
     state.stueckliste = rec;
   }
 
+  let lastVariantEnterAt = 0;
   function enterVariantFromLeaf(leaf) {
     if (!leaf) return;
+    const now = Date.now();
+    if (now - lastVariantEnterAt < 450) return;
+    lastVariantEnterAt = now;
     syncVariantsFromPage();
     let id = leaf.variantId;
     if (!id) {
@@ -495,6 +532,30 @@
     if (idx >= 0) snapToIndex(idx, true);
     else snapToIndex(Math.min(1, state.doc.pages.length - 1), true);
     flash('Variante: ' + label);
+  }
+
+  /** v1.89: DOM-Leaf → Zellenmodell (für Tap trotz Pointer-Capture auf dem Viewport). */
+  function leafModelFromEventTarget(target) {
+    if (!target || !target.closest) return null;
+    const leafEl = target.closest('.varianten-leaf, .page-slide[data-kind="varianten"] .cell-leaf');
+    if (!leafEl) return null;
+    const page = currentPage();
+    if (!page || !isVariantenPage(page) || !page.root) return null;
+    const id = leafEl.dataset.leafId;
+    if (!id) return null;
+    return findLeaf(page.root, id);
+  }
+
+  function tryEnterVariantFromTapTarget(target) {
+    const cell = leafModelFromEventTarget(target);
+    if (!cell || cell.type !== 'leaf') return false;
+    const hasPhoto = !!(cell.photo && cell.photo.src);
+    if (!hasPhoto) return false;
+    if (state.editMode && (state.splitTool || state.photoMoveMode || state.photoRotateMode || state.teleportMode)) {
+      return false;
+    }
+    enterVariantFromLeaf(cell);
+    return true;
   }
 
   function setActiveVariant(variantId, opts) {
@@ -622,7 +683,15 @@
         b.type = 'button';
         b.className = 'btn touch block variant-pick-item';
         b.textContent = v.label;
-        b.addEventListener('click', () => { cleanup(); resolve(v.id); });
+        /* v1.89: bereits aktive Variante ausgegraut / nicht wählbar */
+        if (state.activeVariantId && v.id === state.activeVariantId) {
+          b.disabled = true;
+          b.classList.add('is-current');
+          b.setAttribute('aria-disabled', 'true');
+          b.title = 'Bereits aktiv';
+        } else {
+          b.addEventListener('click', () => { cleanup(); resolve(v.id); });
+        }
         panel.appendChild(b);
       }
       const cancel = document.createElement('button');
@@ -666,10 +735,14 @@
     const multi = specialized.length >= 1 && (scope === 'all' || specialized.length >= 1) &&
       siblings.some((p) => pageVariantScope(p) === 'all') && specialized.length >= 1;
 
+    const statusWrap = document.getElementById('variantBarStatus');
     if (activeEl) {
       const av = state.activeVariantId ? variantById(state.activeVariantId) : null;
       activeEl.textContent = av ? ('Aktiv: ' + av.label) : 'Keine Variante aktiv';
       activeEl.hidden = !av;
+    }
+    if (statusWrap) {
+      statusWrap.classList.toggle('is-multi', false); /* set below when multi */
     }
 
     /* v1.86: „Zwischen Varianten wechseln“ nur wenn es wirklich ≥2 Optionen
@@ -700,17 +773,22 @@
         info.textContent = 'Mehrere Varianten für diese Seite verfügbar';
         info.classList.add('is-multi');
       }
+      if (statusWrap) statusWrap.classList.add('is-multi');
+      /* v1.89: „Aktiv: …“ unter dem Mehrere-Hinweis, beide orange */
+      if (activeEl && state.activeVariantId) activeEl.hidden = false;
     } else if (scope !== 'all') {
       const v = variantById(scope);
       if (info) {
         info.textContent = 'Nur für Variante „' + (v ? v.label : scope) + '“';
         info.classList.remove('is-multi');
       }
+      if (statusWrap) statusWrap.classList.remove('is-multi');
     } else {
       if (info) {
         info.textContent = 'Diese Seite gilt für alle Varianten';
         info.classList.remove('is-multi');
       }
+      if (statusWrap) statusWrap.classList.remove('is-multi');
     }
   }
 
@@ -1171,6 +1249,7 @@
     fehlerBtn: document.getElementById('fehlerBtn'),
     overviewBtn: document.getElementById('overviewBtn'),
     firstPageBtn: document.getElementById('firstPageBtn'),
+    indexPageBtn: document.getElementById('indexPageBtn'),
     lastPageBtn: document.getElementById('lastPageBtn'),
     overviewBackdrop: document.getElementById('overviewBackdrop'),
     overviewPanel: document.getElementById('overviewPanel'),
@@ -1442,7 +1521,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.88';
+  const APP_VERSION = '1.89';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -3246,7 +3325,8 @@
     if (!target || !target.closest) return false;
     if (target.closest(
       '.cell-kamera-wrap, .cell-kamera, .cell-fotos, ' +
-      '.cell-cam-link, .cell-cam-cancel, .topbar, .drawer'
+      '.cell-cam-link, .cell-cam-cancel, .topbar, .drawer, ' +
+      '.varianten-leaf.variant-tap-target, .variant-tap-target'
     )) return true;
 
     /* v1.44: Leere Index-/Fehler-Zeilen (kein Inhalt / keine Navigation) gelten
@@ -3490,6 +3570,14 @@
       if (isTap) trackDragDidPageSwipe = false;
       if (isTap && state.editMode) {
         try { if (trySetHighlightLeafFromTarget(t)) { snapToIndex(state.doc.pageIndex, false); return; } } catch (_) {}
+      }
+      if (isTap) {
+        /* v1.89: Varianten-Foto tippen (Pointer-Capture → kein leaf-click) */
+        try {
+          if (tryEnterVariantFromTapTarget(t)) {
+            return;
+          }
+        } catch (_) {}
       }
       if (!state.editMode) {
         /* v1.33: Leerer View-Mode-Tap toggelt die Floating-Buttons. Interaktive
@@ -4043,13 +4131,21 @@
             !state.splitTool && !state.photoMoveMode && !state.photoRotateMode && !state.teleportMode;
           if (canStart || !state.editMode) {
             leaf.classList.add('variant-tap-target');
-            leaf.addEventListener('click', (e) => {
+            const onPick = (e) => {
               if (trackDragDidPageSwipe) return;
-              if (e.target.closest('.variant-caption-wrap')) return;
+              /* Caption/Kamera: nicht starten (außer Viewer-Caption hat pointer-events:none) */
+              if (e.target.closest('.variant-caption-input') || e.target.closest('.variant-caption-drag')) return;
               if (e.target.closest('.cell-kamera-wrap')) return;
               if (state.editMode && (state.splitTool || state.photoMoveMode || state.photoRotateMode || state.teleportMode)) return;
               e.stopPropagation();
               enterVariantFromLeaf(cell);
+            };
+            leaf.addEventListener('click', onPick);
+            /* Extra: pointerup falls click durch Capture verloren geht */
+            leaf.addEventListener('pointerup', (e) => {
+              if (e.button != null && e.button !== 0) return;
+              /* nur wenn Viewport keinen Drag gestartet hat – sonst onViewportPointerUp */
+              if (trackDrag) return;
             });
           }
         }
@@ -10226,6 +10322,7 @@
       badge.className = 'overview-badge';
       badge.textContent = String(ni + 1);
       btn.appendChild(badge);
+      appendOverviewVariantBars(btn, page);
 
       let pageLabel = 'Seite ' + (ni + 1);
       if (realIdx === currentReal) btn.setAttribute('aria-current', 'page');
@@ -11068,7 +11165,20 @@
   }
   if (el.firstPageBtn) {
     el.firstPageBtn.addEventListener('click', () => {
-      if (state.doc.pageIndex !== 0) goToPage(0);
+      /* v1.89: erste Nav-Seite = Varianten (page 1) */
+      const nav = getNavPages();
+      if (!nav.length) return;
+      const first = state.doc.pages.indexOf(nav[0]);
+      if (first >= 0 && state.doc.pageIndex !== first) goToPage(first);
+      updateChromeForPage();
+    });
+  }
+  if (el.indexPageBtn) {
+    el.indexPageBtn.addEventListener('click', () => {
+      /* v1.89: Index = Arbeitsschritte-Tabelle */
+      const idx = (state.doc.pages || []).findIndex((pg) => isIndexPage(pg));
+      if (idx < 0) return;
+      if (state.doc.pageIndex !== idx) goToPage(idx);
       updateChromeForPage();
     });
   }
@@ -11110,19 +11220,24 @@
     }
   });
 
-  /* Page navigation: → next, ← previous (Enter reserved for text/BEAK editing) */
+  /* Page navigation: → next, ← previous — v1.89: über getNavPages() wie Wischen */
   window.addEventListener('keydown', (e) => {
     if (e.defaultPrevented) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (isTypingTarget(e.target) || isBlockingOverlayOpen()) return;
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    if (isWelcomeOpen && isWelcomeOpen()) return;
+    const nav = getNavPages();
+    if (!nav.length) return;
+    const navIdx = navIndexOfPageIndex(state.doc.pageIndex);
     if (e.key === 'ArrowRight') {
-      if (state.doc.pageIndex >= state.doc.pages.length - 1) return;
+      if (navIdx >= nav.length - 1) return;
       e.preventDefault();
-      goToPage(state.doc.pageIndex + 1);
-    } else if (e.key === 'ArrowLeft') {
-      if (state.doc.pageIndex <= 0) return;
+      goToPage(realIndexFromNavIndex(navIdx + 1));
+    } else {
+      if (navIdx <= 0) return;
       e.preventDefault();
-      goToPage(state.doc.pageIndex - 1);
+      goToPage(realIndexFromNavIndex(navIdx - 1));
     }
   });
   el.photoMoveBtn.addEventListener('click', () => {
@@ -11815,7 +11930,7 @@
     {
       title: 'Viewer: Blättern & Chrome',
       body: 'Im Lesemodus wischen Sie horizontal zwischen den Seiten.\nEin Tip auf freie Fläche blendet die oberen Buttons ein oder aus. Übersicht zeigt alle Seiten als Miniaturen.',
-      spotlight: '#overviewBtn, #firstPageBtn, #lastPageBtn',
+      spotlight: '#overviewBtn, #firstPageBtn, #indexPageBtn, #lastPageBtn',
       mode: 'viewer',
     },
     {

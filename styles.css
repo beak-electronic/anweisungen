@@ -2139,7 +2139,8 @@ input.fehler-cell:focus {
   pointer-events: none;
 }
 .overview-thumb .overview-badge,
-.overview-thumb .overview-caption { z-index: 3; }
+.overview-thumb .overview-caption,
+.overview-thumb .overview-variant-bars { z-index: 3; }
 .overview-thumb .overview-placeholder {
   position: absolute;
   inset: 0;
@@ -2167,6 +2168,32 @@ input.fehler-cell:focus {
   align-items: center;
   justify-content: center;
   pointer-events: none;
+}
+/* v1.89: Varianten-Balken oben rechts (wie Badge-Hintergrund) */
+.overview-thumb .overview-variant-bars {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: center;
+  gap: 3px;
+  height: 24px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.75);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+.overview-thumb .overview-variant-bar {
+  display: block;
+  width: 3px;
+  height: 100%;
+  border-radius: 1px;
+  background: #fff;
+  opacity: 0.95;
 }
 
 
@@ -2708,6 +2735,7 @@ html.stage-ipad-fill .app::before {
   gap: 8px;
 }
 .top-center .first-page-btn,
+.top-center .index-page-btn,
 .top-center .last-page-btn {
   color: #f0f0f0;
 }
@@ -3244,6 +3272,7 @@ html.overlay-scroll, html.overlay-scroll body { touch-action: auto; }
 
 /* v1.49: Erste/Letzte Seite wieder mit Label (wie v1.18 label-btn) */
 .top-center .first-page-btn.label-btn,
+.top-center .index-page-btn.label-btn,
 .top-center .last-page-btn.label-btn {
   color: #f0f0f0;
   flex: 0 0 auto;
@@ -4008,20 +4037,47 @@ html.orient-portrait.app-h-fixed .page-viewport {
   pointer-events: auto;
 }
 .variant-bar[hidden] { display: none !important; }
+.variant-bar-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  margin-right: 8px;
+  max-width: min(420px, 55vw);
+}
 .variant-bar-info {
   font-size: 0.88rem;
   font-weight: 600;
   color: var(--text, #e8ecf1);
-  margin-right: 4px;
+  margin-right: 0;
+  line-height: 1.2;
 }
-.variant-bar-info.is-multi {
-  color: #ef4444;
+.variant-bar-info.is-multi,
+.variant-bar-status.is-multi .variant-bar-info,
+.variant-bar-status.is-multi .variant-active-label {
+  color: #f59e0b; /* v1.89 orange */
   font-weight: 800;
 }
 .variant-active-label {
   font-size: 0.82rem;
   color: var(--accent, #dd007a);
   font-weight: 700;
+  line-height: 1.2;
+}
+.variant-bar-status.is-multi .variant-active-label {
+  color: #f59e0b;
+}
+.variant-pick-item.is-current,
+.variant-pick-item:disabled {
+  opacity: 0.45;
+  filter: grayscale(0.35);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+/* Viewer: Caption blockiert keine Foto-Taps */
+.app:not(.edit-mode) .varianten-stage .variant-caption-wrap {
+  pointer-events: none !important;
 }
 .variant-bar .btn.sm {
   min-height: 34px;
@@ -4062,9 +4118,33 @@ html.orient-portrait.app-h-fixed .page-viewport {
 
 /* Varianten-Seite: Annotationen aus – Unterteilung (.varianten-ok-tool) bleibt sichtbar */
 
-/* v1.88: Varianten-Seite – Trennlinien Viewer weiß, Editor schwarz */
+/* v1.88/v1.89: Varianten-Seite – Trennlinien Viewer weiß ohne schwarzen Saum; Editor schwarz */
 .app:not(.edit-mode) .varianten-stage .cell-split {
   background: #ffffff;
+  border: none;
+  outline: none;
+  box-shadow: none;
+}
+/* Dunkle Leaf-Kanten erzeugten schwarzen Fransenrand an der weißen Fuge */
+.app:not(.edit-mode) .varianten-stage .cell-split > .cell,
+.app:not(.edit-mode) .varianten-stage .cell-split > .cell-leaf,
+.app:not(.edit-mode) .varianten-stage .varianten-leaf {
+  background: #ffffff;
+  border: none;
+  outline: none;
+  box-shadow: none;
+}
+.app:not(.edit-mode) .varianten-stage .split-handle {
+  border: none;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+}
+.app:not(.edit-mode) .varianten-stage .split-handle::before,
+.app:not(.edit-mode) .varianten-stage .split-handle::after {
+  display: none !important;
+  content: none !important;
+  box-shadow: none !important;
 }
 .app.edit-mode .varianten-stage .cell-split {
   background: #000000;

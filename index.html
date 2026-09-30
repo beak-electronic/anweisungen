@@ -24,7 +24,7 @@
   <link rel="apple-touch-icon" sizes="152x152" href="apple-touch-icon-152.png" />
   <link rel="apple-touch-icon" sizes="120x120" href="apple-touch-icon-120.png" />
   <title>Anweisungen</title>
-  <link rel="stylesheet" href="styles.css?v=1.88" />
+  <link rel="stylesheet" href="styles.css?v=1.89" />
 </head>
 <body>
   <div class="app" id="app">
@@ -43,8 +43,9 @@
         <button type="button" class="btn sm layout-only-tool" id="toolInfo" title="+ Info">+ Info</button>
       </div>
       <div class="top-center">
-        <button type="button" class="btn sm label-btn first-page-btn" id="firstPageBtn" title="Erste Seite" aria-label="Erste Seite"><svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18.5 5.5v13M14.2 12H5.5M9.2 7.8L5.5 12l3.7 4.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="btn-label">Erste Seite</span></button>
         <button type="button" class="btn sm overview-btn" id="overviewBtn" title="Seitenübersicht" aria-label="Übersicht"><svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3.6" y="5" width="7.4" height="5.6" rx="1.1" fill="currentColor" fill-opacity="0.35"/><rect x="13" y="5" width="7.4" height="5.6" rx="1.1"/><rect x="3.6" y="13.4" width="7.4" height="5.6" rx="1.1"/><rect x="13" y="13.4" width="7.4" height="5.6" rx="1.1"/></g></svg><span class="overview-btn-label">Übersicht</span></button>
+        <button type="button" class="btn sm label-btn first-page-btn" id="firstPageBtn" title="Erste Seite (Varianten)" aria-label="Erste Seite"><svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18.5 5.5v13M14.2 12H5.5M9.2 7.8L5.5 12l3.7 4.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="btn-label">Erste Seite</span></button>
+        <button type="button" class="btn sm label-btn index-page-btn" id="indexPageBtn" title="Arbeitsschritte (Index)" aria-label="Index"><svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.55" stroke-linejoin="round"><rect x="3.2" y="3.2" width="17.6" height="17.6" rx="1.4"/><path d="M8.2 3.2v17.6"/><path d="M3.2 7.6h17.6M3.2 12h17.6M3.2 16.4h17.6"/></g></svg><span class="btn-label">Index</span></button>
         <button type="button" class="btn sm label-btn last-page-btn" id="lastPageBtn" title="Letzte Seite" aria-label="Letzte Seite"><svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 5.5v13M9.8 12h8.7M14.8 7.8L18.5 12l-3.7 4.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="btn-label">Letzte Seite</span></button>
       </div>
       <div class="top-actions">
@@ -102,8 +103,10 @@
 
     
     <div class="variant-bar" id="variantBar" hidden role="toolbar" aria-label="Varianten">
-      <span class="variant-bar-info" id="variantBarInfo">Diese Seite gilt für alle Varianten</span>
-      <span class="variant-active-label" id="variantActiveLabel" hidden></span>
+      <div class="variant-bar-status" id="variantBarStatus">
+        <span class="variant-bar-info" id="variantBarInfo">Diese Seite gilt für alle Varianten</span>
+        <span class="variant-active-label" id="variantActiveLabel" hidden></span>
+      </div>
       <button type="button" class="btn sm" id="variantAddBtn" title="Seite für eine Variante spezialisieren">+ Variante</button>
       <button type="button" class="btn sm" id="variantSwitchBtn" title="Aktive Variante wechseln">Zwischen Varianten wechseln</button>
       <button type="button" class="btn sm" id="variantOnlyBtn" title="Aktuelle Seite nur für eine Variante (andere Varianten überspringen sie)">Nur für eine Variante</button>
@@ -168,7 +171,7 @@
           oder als Home-Bildschirm-App nutzen. Nach dem ersten Laden hält der Service Worker die App-Shell offline bereit. Nach Viewport-/Statusleisten-Updates die Home-Bildschirm-App neu anlegen. Kein Backend, kein Upload-Link nötig. Projektdateien (<code>.beak</code>) werden nicht in den Offline-Cache gelegt.
         </div>
       </details>
-      <div class="drawer-version" id="appVersion">Anweisungen · Version 1.88</div>
+      <div class="drawer-version" id="appVersion">Anweisungen · Version 1.89</div>
     </nav>
 
     <main class="page" id="pageArea">
@@ -194,7 +197,7 @@
         <button type="button" class="btn touch welcome-btn welcome-tour-btn" id="welcomeTourBtn">Neu hier? Tour anzeigen</button>
       </div>
       <p class="welcome-hint">Projekte speichern Sie als <code>.beak</code>-Datei. Beim Start erscheint immer dieser Willkommensbildschirm — Öffnen lädt eine Datei.</p>
-      <p class="welcome-version" id="welcomeVersion">Anweisungen · Version 1.88</p>
+      <p class="welcome-version" id="welcomeVersion">Anweisungen · Version 1.89</p>
     </div>
   </div>
 
@@ -304,6 +307,6 @@
 
   <script src="vendor/jszip.min.js"></script>
   <script src="vendor/pdf-lib.min.js"></script>
-  <script src="app.js?v=1.88"></script>
+  <script src="app.js?v=1.89"></script>
 </body>
 </html>

@@ -2,7 +2,18 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.88
+**Version:** 1.89
+
+## Neu in 1.89
+
+- **Variante wählen:** Tippen/Klicken auf das Foto auf Seite 1 wählt die Variante und springt zu Arbeitsschritte (Viewer; Editor ohne Split-/Foto-Werkzeug).
+- **Pfeiltasten:** Links/Rechts navigieren über die gefilterte Seitenliste (wie Wischen) – kein Hängen an unsichtbaren Spezialseiten.
+- **Zwischen Varianten wechseln:** Die bereits aktive Variante ist ausgegraut/nicht wählbar.
+- **Varianten-Leiste:** „Mehrere Varianten…“ und „Aktiv: …“ untereinander, beide orange.
+- **Übersicht:** Bei Seiten mit mehreren Varianten N senkrechte Balken oben rechts auf der Kachel (Badge-Stil).
+- **Viewer-Mitte:** Reihenfolge Übersicht → Erste Seite (Varianten) → **Index** (Arbeitsschritte) → Letzte Seite.
+- **Trennlinien Seite 1 (Viewer):** Weiß ohne schwarzen Saum/Schatten — Linie tritt kaum hervor.
+- **Service Worker:** Cache `anweisungen-shell-v1.89` und `?v=1.89`.
 
 ## Neu in 1.88
 
