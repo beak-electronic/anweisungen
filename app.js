@@ -3,7 +3,8 @@
 
   const STORAGE_KEY = 'seitenlayout-v2';
   const ASPECT_W = 1180;
-  /* v1.83: Aspect leicht landscape-er (1180×792) als 1.82 (1180×800).
+  /* v1.84: Editor – Split-Divider ziehen gewinnt über Seiten-Wischen; Viewer weiter Wischen auf Trennlinie.
+   * v1.83: Aspect leicht landscape-er (1180×792) als 1.82 (1180×800).
      iPad Air 1180×820 minus Status (~24–28pt) → Fenster ohne Seiten-Letterbox (kein Stretch).
      Fill bleibt uniform (--page-ref-h). */
   const ASPECT_H = 792;
@@ -798,7 +799,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.83';
+  const APP_VERSION = '1.84';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -2649,9 +2650,9 @@
     if (state.editMode && target.closest('.index-page')) return true;
     if (state.editMode && (target.closest('.fehler-page') || target.closest('.fehler-embed'))) return true;
     /* Edit: Annotation verschieben/resize; Delete/Handles immer blocken (v1.54: 44px-Hitbox).
-       v1.67: .split-handle NICHT blocken — Seiten-Wischen darf auf Trennlinien starten;
-       Resize nur wenn Divider bereits ausgewählt (onSplitDown). */
+       v1.84: Edit → .split-handle blocken (Divider ziehen); Viewer → Wischen über Trennlinie ok. */
     if (target.closest('.ann-delete') || target.closest('.handle')) return true;
+    if (state.editMode && target.closest('.split-handle')) return true;
     if (state.editMode && target.closest('.ann')) return true;
     /* v1.30 view mode: Wischen darf auf Index-Hyperlinks, .ann (BEAK-Nr./Buttons)
        und Fehlerzeilen starten – wie .fehler-row-nav (Tap vs. Swipe in pointerup). */
@@ -3402,9 +3403,11 @@
       handle.style.top = ratio * 100 + '%';
     }
     handle.addEventListener('pointerdown', (e) => {
-      /* v1.67: Resize nur bei bereits ausgewähltem Divider; sonst Seiten-Wischen / Tap-Select */
+      /* v1.84: Editor → Divider immer greifen (ziehen), nicht Seiten-Wischen.
+         Viewer: Listener return → Viewport-Swipe über Trennlinie blättert weiter. */
       if (!state.editMode) return;
-      if (state.selectedSplitId === cell.id) onSplitDown(e, cell.id, cell.dir, wrap);
+      if (e.target.closest && e.target.closest('.split-delete')) return;
+      onSplitDown(e, cell.id, cell.dir, wrap);
     });
 
     const splitDel = document.createElement('button');
@@ -5800,6 +5803,17 @@
   function onSplitDown(e, splitId, dir, wrapEl) {
     if (!state.editMode) return;
     if (e.button != null && e.button !== 0) return;
+    /* v1.84: nascent page-swipe killen — Divider muss über Viewport-Drag gewinnen */
+    trackDrag = null;
+    state.selectedSplitId = splitId;
+    state.selectedId = null;
+    hideCopyPasteCallout();
+    try {
+      document.querySelectorAll('.split-handle.selected').forEach((h) => {
+        if (h !== e.currentTarget) h.classList.remove('selected');
+      });
+      if (e.currentTarget && e.currentTarget.classList) e.currentTarget.classList.add('selected');
+    } catch (_) {}
     const sr = wrapEl.getBoundingClientRect();
     drag = {
       kind: 'split',

@@ -2,7 +2,14 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.83
+**Version:** 1.84
+
+## Neu in 1.84
+
+- **Editor: Trennlinien wieder ziehbar:** Im Edit-Modus (Querformat) greifen Vertikal-/Horizontal-Divider wieder – Ziehen verschiebt die Teilung. Seiten-Wischen stiehlt die Geste nicht mehr (ursächlich: Viewport-Swipe fing Pointer vor `onSplitDown`).
+- **Viewer unverändert:** Wischen über einer Trennlinie blättert weiter die Seite (wie seit 1.67).
+- **Preserve:** Split one-shot (v1.72), Highlight multi-leaf, Aspect 1180×792 / Fill uniform, Portrait-Stapel, pdf.js Legacy, `.beak` v5.
+- **Service Worker:** Cache `anweisungen-shell-v1.84` und `?v=1.84`.
 
 ## Neu in 1.83
 
