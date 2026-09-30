@@ -797,7 +797,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.76';
+  const APP_VERSION = '1.77';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -5153,6 +5153,63 @@
     el.progressBackdrop.hidden = true;
   }
 
+  /** v1.77: Beim Löschen einer Layout-Seite Fehleranalyse-Zeilen der Seite entfernen
+   *  und 1-basierte Seitenverweise (Index/Buttons) nachziehen. */
+  function clearFehlerRowsForDeletedPage(deletedPage, remainingPages) {
+    if (!deletedPage) return;
+    const deletedId = (typeof deletedPage.id === 'string' && deletedPage.id) ? deletedPage.id : null;
+    const deletedEmbedIds = new Set();
+    const embed = normalizeFehlerEmbed(deletedPage.fehlerEmbed);
+    if (embed) {
+      for (const id of embed.rowIds) deletedEmbedIds.add(id);
+    }
+    if (!deletedId && !deletedEmbedIds.size) return;
+
+    const stillEmbedded = collectEmbedRowIds(remainingPages);
+    const fp = getFehlerPage();
+    if (!fp) return;
+    padFehlerRows(fp);
+    for (const row of fp.rows) {
+      if (!row) continue;
+      const tied =
+        (deletedId && row.sourcePageId === deletedId) ||
+        deletedEmbedIds.has(row.id);
+      if (!tied) continue;
+      if (stillEmbedded.has(row.id)) {
+        if (deletedId && row.sourcePageId === deletedId) {
+          row.sourcePageId = findLayoutPageIdForFehlerRow(row.id);
+        }
+        continue;
+      }
+      row.date = '';
+      row.description = '';
+      row.cause = '';
+      row.remedy = '';
+      row.sourcePageId = null;
+    }
+  }
+
+  function renumberPageRefsAfterDelete(deletedPageNum) {
+    if (!(deletedPageNum >= 1)) return;
+    for (const p of state.doc.pages) {
+      if (!p) continue;
+      if (isIndexPage(p) && Array.isArray(p.rows)) {
+        for (const r of p.rows) {
+          if (!r || typeof r.targetPage !== 'number') continue;
+          if (r.targetPage === deletedPageNum) r.targetPage = 0;
+          else if (r.targetPage > deletedPageNum) r.targetPage -= 1;
+        }
+      }
+      if (Array.isArray(p.annotations)) {
+        for (const a of p.annotations) {
+          if (!a || typeof a.targetPage !== 'number') continue;
+          if (a.targetPage === deletedPageNum) a.targetPage = 0;
+          else if (a.targetPage > deletedPageNum) a.targetPage -= 1;
+        }
+      }
+    }
+  }
+
   async function removePage() {
     const cur = currentPage();
     if (isIndexPage(cur) || state.doc.pageIndex === 0) {
@@ -5172,7 +5229,12 @@
     if (!ok) return;
     stopLiveCamera();
     const idx = state.doc.pageIndex;
+    const deleted = state.doc.pages[idx];
+    const deletedPageNum = idx + 1;
     state.doc.pages.splice(idx, 1);
+    clearFehlerRowsForDeletedPage(deleted, state.doc.pages);
+    renumberPageRefsAfterDelete(deletedPageNum);
+    state.doc.pages = ensureBookends(state.doc.pages);
     const next = clamp(idx - 1, 0, state.doc.pages.length - 1);
     state.selectedId = null;
     state.selectedSplitId = null;

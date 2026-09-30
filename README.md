@@ -2,7 +2,12 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.76
+**Version:** 1.77
+
+## Neu in 1.77
+
+- **Seite löschen → Fehleranalyse:** Beim Löschen einer Layout-Seite werden zugehörige Fehlerzeilen aus der Fehlertabelle (letzte Seite) entfernt bzw. neu aufgebaut; 1-basierte Seitenverweise in Index und Buttons werden nachgezogen.
+- **Service Worker:** Cache `anweisungen-shell-v1.77` und `?v=1.77`.
 
 ## Neu in 1.76
 
