@@ -2,7 +2,23 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.81
+**Version:** 1.83
+
+## Neu in 1.83
+
+- **Aspect Feinabstimmung:** Logische Seite **1156×≈775** (Aspect **1180×792**, leicht landscape-er als 1.82/800). **Fenster** auf iPad Air praktisch ohne schwarze Seitenbalken (Statusleiste oben schwarz ok). **Kein Stretch** – Fill weiter uniform mit `--page-ref-h`.
+- **Hochformat-Stapel dicht:** Ursache der riesigen schwarzen Lücken: `html.app-h-fixed` erzwang `height:100% !important` pro `.page-slide` (iPad; Windows ohne app-h-fixed war ok). Override → `height:auto` + Aspect; Stage nicht mehr viewport-hoch. Unnötiger Schwarz-Scroll weg.
+- **Abstand gestapelte Seiten:** `gap: calc(var(--frame-border-w) * 2)` ≈ **2× Foto-Trennlinie** (4 mm).
+- **Preserve:** Highlight multi-leaf, pdf.js Legacy, `.beak` v5, opake Statusleiste `black`, Editor im Hochformat aus.
+- **Service Worker:** Cache `anweisungen-shell-v1.83` und `?v=1.83`.
+
+## Neu in 1.82
+
+- **Aspect / Anzeige ohne Stretch:** Logische Seite jetzt **1156×≈783** (Aspect **1180×800** = iPad Air Landscape nutzbar, minus ~20 pt opake Statusleiste). **Fenster** auf iPad Air ohne schwarze Seitenbalken (nur Statusleiste oben schwarz ok). **Fill** skaliert wieder **uniform** (kein sx/sy-Stretch aus 1.81); `--page-ref-h` passt die logische Höhe an die Bühne an → volle Fläche ohne Verzerrung. Alte `.beak` auto-adapt (%-Koordinaten).
+- **Highlight Mehrfach-Fotos:** Highlight → Fotofelder antippen (mehrere pro Seite, Toggle) → Fertig. Schwarze Trennlinien bleiben unmaskiert. Persistenz: `highlightLeafIds[]` in `.beak` (Migration von `highlightLeafId`).
+- **Hochformat-Scroll:** Alle Seiten stapeln und scrollen (nicht nur 1+2 dann schwarz). Ursache: `.page-slide.far` + `content-visibility` und `scrollTop`-Reset – beides im Portrait abgeschaltet.
+- **Preserve:** pdf.js Legacy, `.beak` v5, kein Stretch, opake Statusleiste `black`, Editor im Hochformat ausgeblendet.
+- **Service Worker:** Cache `anweisungen-shell-v1.82` und `?v=1.82`.
 
 ## Neu in 1.81
 

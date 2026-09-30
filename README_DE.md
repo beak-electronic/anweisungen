@@ -2,7 +2,15 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.82
+**Version:** 1.83
+
+## Neu in 1.83
+
+- **Aspect Feinabstimmung:** Logische Seite **1156×≈775** (Aspect **1180×792**, leicht landscape-er als 1.82/800). **Fenster** auf iPad Air praktisch ohne schwarze Seitenbalken (Statusleiste oben schwarz ok). **Kein Stretch** – Fill weiter uniform mit `--page-ref-h`.
+- **Hochformat-Stapel dicht:** Ursache der riesigen schwarzen Lücken: `html.app-h-fixed` erzwang `height:100% !important` pro `.page-slide` (iPad; Windows ohne app-h-fixed war ok). Override → `height:auto` + Aspect; Stage nicht mehr viewport-hoch. Unnötiger Schwarz-Scroll weg.
+- **Abstand gestapelte Seiten:** `gap: calc(var(--frame-border-w) * 2)` ≈ **2× Foto-Trennlinie** (4 mm).
+- **Preserve:** Highlight multi-leaf, pdf.js Legacy, `.beak` v5, opake Statusleiste `black`, Editor im Hochformat aus.
+- **Service Worker:** Cache `anweisungen-shell-v1.83` und `?v=1.83`.
 
 ## Neu in 1.82
 

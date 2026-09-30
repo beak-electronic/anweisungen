@@ -3,14 +3,15 @@
 
   const STORAGE_KEY = 'seitenlayout-v2';
   const ASPECT_W = 1180;
-  /* v1.82: Aspect = iPad Air Landscape nutzbare Fläche (1180×820 minus ~20pt opake Statusleiste).
-     Fenster füllt damit ohne seitliche Letterbox; Fill skaliert uniform (kein sx/sy-Stretch). */
-  const ASPECT_H = 800;
-  /* v1.17/v1.82: Seiteninhalt in festem logischem Koordinatensystem, per transform: scale()
-     auf die Bühne. Referenzbreite 1156 (Bernd Mac-Screenshot); Höhe aus Aspect 1180×800
-     → ≈ 783,05. Alte .beak (%-Koordinaten) passen sich automatisch an. */
+  /* v1.83: Aspect leicht landscape-er (1180×792) als 1.82 (1180×800).
+     iPad Air 1180×820 minus Status (~24–28pt) → Fenster ohne Seiten-Letterbox (kein Stretch).
+     Fill bleibt uniform (--page-ref-h). */
+  const ASPECT_H = 792;
+  /* v1.17/v1.83: Seiteninhalt in festem logischem Koordinatensystem, per transform: scale()
+     auf die Bühne. Referenzbreite 1156 (Bernd Mac-Screenshot); Höhe aus Aspect 1180×792
+     → ≈ 775,89. Alte .beak (%-Koordinaten) passen sich automatisch an. */
   const PAGE_REF_W = 1156;
-  const PAGE_REF_H = PAGE_REF_W * ASPECT_H / ASPECT_W; // ≈ 783.05
+  const PAGE_REF_H = PAGE_REF_W * ASPECT_H / ASPECT_W; // ≈ 775.89
   const SNAP_MS = 320;
   const VELOCITY_THRESHOLD = 0.55;
   const PHOTO_SCALE_MIN = 1;
@@ -797,7 +798,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.82';
+  const APP_VERSION = '1.83';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -2794,7 +2795,7 @@
       Browser (content-visibility) → weniger Grafikspeicher und ruhigeres Wischen auf dem iPad. */
   function updateNearSlides() {
     if (!el.pageTrack) return;
-    /* v1.82: im Hochformat alle Seiten stapeln – kein content-visibility:hidden (.far),
+    /* v1.83: im Hochformat alle Seiten stapeln – kein content-visibility:hidden (.far),
        sonst nur Seite 1+2 sichtbar und danach schwarz. */
     const portrait = document.documentElement.classList.contains('orient-portrait');
     const idx = state.doc.pageIndex;
@@ -4810,7 +4811,7 @@
     return panel;
   }
 
-  /* ---- v1.67/v1.81/v1.82 Highlight-Schleier (ein oder mehrere Fotofelder) -------- */
+  /* ---- v1.67/v1.81/v1.83 Highlight-Schleier (ein oder mehrere Fotofelder) -------- */
   function normalizeHighlightLeafIds(src) {
     const out = [];
     if (!src || typeof src !== 'object') return out;
@@ -4820,7 +4821,7 @@
         if (typeof id === 'string' && id && out.indexOf(id) < 0) out.push(id);
       }
     }
-    /* v1.81 → v1.82: einzelnes highlightLeafId migrieren */
+    /* v1.81 → v1.83: einzelnes highlightLeafId migrieren */
     if (!out.length && typeof src.highlightLeafId === 'string' && src.highlightLeafId) {
       out.push(src.highlightLeafId);
     }
@@ -4971,7 +4972,7 @@
     if (typeof historyCommit === 'function') historyCommit();
   }
 
-  /** v1.81/v1.82: bei aktivem Highlight Fotofelder antippen – mehrere möglich (Toggle) */
+  /** v1.81/v1.83: bei aktivem Highlight Fotofelder antippen – mehrere möglich (Toggle) */
   function trySetHighlightLeafFromTarget(target) {
     if (!state.editMode || !target || !target.closest) return false;
     const page = currentPage();
@@ -5118,8 +5119,8 @@
     return slide;
   }
 
-  /** v1.17/v1.26/v1.31/v1.50/v1.82: Maßstab logische Seite (PAGE_REF_W×PAGE_REF_H) → Bühne.
-   *  Aspect 1180×800 = iPad Air Landscape nutzbar (−Statusleiste) → Fenster ohne Seitenbalken.
+  /** v1.17/v1.26/v1.31/v1.50/v1.83: Maßstab logische Seite (PAGE_REF_W×PAGE_REF_H) → Bühne.
+   *  Aspect 1180×792 = iPad Air Landscape nutzbar (−Status) → Fenster praktisch ohne Seitenbalken.
    *  stage-ipad-fill: UNIFORM scale (kein sx≠sy-Stretch). Logische Höhe kann per
    *    --page-ref-h an die Bühnen-Aspect angepasst werden → füllt ohne Verzerrung/Letterbox.
    *  Runtime-Scale: bestehende .beak auto-adaptieren (Öffnen/Resize).
@@ -5140,7 +5141,7 @@
       && !document.documentElement.classList.contains('orient-portrait');
     let pageH = PAGE_REF_H;
     if (fill && h > 0) {
-      /* v1.82: logische Höhe an Bühnen-Aspect → uniform scale füllt exakt, kein Stretch */
+      /* v1.83: logische Höhe an Bühnen-Aspect → uniform scale füllt exakt, kein Stretch */
       pageH = PAGE_REF_W * (h / w);
     }
     const sx = w / PAGE_REF_W;
@@ -7380,7 +7381,7 @@
     if (p.highlight) out.highlight = true; /* v1.67 */
     if (p.highlight) {
       const ids = normalizeHighlightLeafIds(p);
-      if (ids.length) out.highlightLeafIds = ids.slice(); /* v1.82 multi-leaf */
+      if (ids.length) out.highlightLeafIds = ids.slice(); /* v1.83 multi-leaf */
     }
     const embed = normalizeFehlerEmbed(p.fehlerEmbed);
     if (embed) out.fehlerEmbed = { rowIds: embed.rowIds.slice() };
@@ -10542,7 +10543,7 @@
     for (const n of [el.pageViewport, el.pageArea, el.app]) {
       if (!n) continue;
       if (n.scrollLeft) n.scrollLeft = 0;
-      /* v1.82: Hochformat = vertikaler Seitenstapel – scrollTop nicht killen */
+      /* v1.83: Hochformat = vertikaler Seitenstapel – scrollTop nicht killen */
       if (!portrait && n.scrollTop) n.scrollTop = 0;
     }
   }
@@ -11497,12 +11498,12 @@
     try { fixStandaloneViewport(); } catch (_) {}
   }
 
-  /* v1.22/v1.26/v1.31/v1.50/v1.82: iPad-Standalone → stage-ipad-fill (uniform Fill) oder stage-ipad-window.
+  /* v1.22/v1.26/v1.31/v1.50/v1.83: iPad-Standalone → stage-ipad-fill (uniform Fill) oder stage-ipad-window.
      Desktop/PC → keine iPad-Klassen: Seite einpassen. Preference trotzdem speicherbar.
      v1.26: visualViewport bevorzugen; --app-h nie größer als sichtbar.
      v1.36: Während Tastatur-Eingabe Layout-Größe einfrieren (kein Shrink aus vv.height) –
              gilt für Fill und Fenster; Sichtbarkeit über updateKbAvoid (translateY).
-     v1.82: Fill uniform (kein Stretch); Aspect 1180×800 → Fenster iPad Air ohne Seitenbalken; schlanker Inset. */
+     v1.83: Fill uniform (kein Stretch); Aspect 1180×792 → Fenster iPad Air praktisch ohne Seitenbalken; schlanker Inset. */
   let lastGoodAppH = '';
   let lastGoodAppW = '';
   function fixStandaloneViewport() {

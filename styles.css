@@ -528,7 +528,7 @@ html.stage-ipad-window .page-viewport {
 .stage {
   height: 100%;
   width: auto;
-  aspect-ratio: 1180 / 800;
+  aspect-ratio: 1180 / 792;
   max-height: 100%;
   max-width: 100%;
   background: var(--stage-bg);
@@ -539,7 +539,7 @@ html.stage-ipad-window .page-viewport {
 
 /* v1.82 iPad Fill: Stage füllt den Viewport; logische Seite per UNIFORM scale
    (--page-scale, --page-ref-h an Bühnen-Aspect) – kein sx/sy-Stretch, kein Crop.
-   Aspect 1180×800 ≈ iPad Air nutzbar; Fenster ohne Seitenbalken. Kein Innen-Spacer. */
+   Aspect 1180×792 ≈ iPad Air nutzbar; Fenster ohne Seitenbalken. Kein Innen-Spacer. */
 html.stage-ipad-fill .page-slide {
   justify-content: stretch;
   align-items: stretch;
@@ -565,7 +565,7 @@ html.stage-ipad-fill .stage-inner {
   transform-origin: 0 0;
 }
 
-/* v1.31/v1.82 iPad Fenster: Höhe füllen, Breite aus Aspect 1180×800 → auf iPad Air ohne Seitenbalken; volle Seite sichtbar */
+/* v1.31/v1.82 iPad Fenster: Höhe füllen, Breite aus Aspect 1180×792 → auf iPad Air ohne Seitenbalken; volle Seite sichtbar */
 html.stage-ipad-window .page-slide {
   justify-content: center;
   align-items: stretch;
@@ -573,7 +573,7 @@ html.stage-ipad-window .page-slide {
 html.stage-ipad-window .stage {
   height: 100%;
   width: auto;
-  aspect-ratio: 1180 / 800;
+  aspect-ratio: 1180 / 792;
   max-height: 100%;
   max-width: 100%;
 }
@@ -584,14 +584,14 @@ html.stage-ipad-window .stage-inner {
   bottom: auto;
   transform-origin: 0 0;
 }
-/* v1.17/v1.82: logische Seite 1156 × ~783 px (Aspect 1180×800 = iPad Air nutzbar), per Maßstab
+/* v1.17/v1.83: logische Seite 1156 × ~775 px (Aspect 1180×792 = iPad Air nutzbar), per Maßstab
    auf die Bühne. --page-scale = Bühnenbreite/1156 (uniform); Fill setzt --page-ref-h dynamisch. */
 .stage-inner {
   position: absolute;
   left: 0;
   top: 0;
   width: 1156px;
-  height: var(--page-ref-h, calc(1156px * 800 / 1180));
+  height: var(--page-ref-h, calc(1156px * 792 / 1180));
   transform: scale(var(--page-scale, 1));
   transform-origin: 0 0;
 }
@@ -2081,7 +2081,7 @@ input.fehler-cell:focus {
 
 .overview-thumb {
   position: relative;
-  aspect-ratio: 1180 / 800;
+  aspect-ratio: 1180 / 792;
   border-radius: 8px;
   overflow: hidden;
   border: 2px solid var(--border);
@@ -2648,8 +2648,8 @@ html.is-fullscreen, html.is-fullscreen body { background: var(--page-bg); }
     height: 100%;
     height: 100cqh;
     width: auto;
-    width: min(100cqw, calc(100cqh * 1180 / 800));
-    aspect-ratio: 1180 / 800;
+    width: min(100cqw, calc(100cqh * 1180 / 792));
+    aspect-ratio: 1180 / 792;
     max-height: 100%;
     max-height: 100cqh;
     max-width: 100%;
@@ -2678,8 +2678,8 @@ html.is-fullscreen, html.is-fullscreen body { background: var(--page-bg); }
     height: 100%;
     height: 100cqh;
     width: auto;
-    width: min(100cqw, calc(100cqh * 1180 / 800));
-    aspect-ratio: 1180 / 800;
+    width: min(100cqw, calc(100cqh * 1180 / 792));
+    aspect-ratio: 1180 / 792;
     max-height: 100%;
     max-height: 100cqh;
     max-width: 100%;
@@ -3816,7 +3816,7 @@ html.overlay-scroll, html.overlay-scroll body { touch-action: auto; }
 }
 
 
-/* ---- v1.81/v1.82: Hochformat – ALLE Seiten vertikal stapeln, scrollen; Editor aus ---- */
+/* ---- v1.81/v1.83: Hochformat – ALLE Seiten vertikal stapeln, scrollen; Editor aus ---- */
 html.orient-portrait .page-viewport {
   overflow-x: hidden;
   overflow-y: auto;
@@ -3830,6 +3830,8 @@ html.orient-portrait .page-track {
   width: 100%;
   height: auto;
   min-height: 100%;
+  /* Abstand zwischen gestapelten Seiten ≈ 2× Foto-Trennlinie (2mm → 4mm) */
+  gap: calc(var(--frame-border-w) * 2);
   transform: none !important;
   will-change: auto;
 }
@@ -3840,20 +3842,24 @@ html.orient-portrait .page-slide {
   flex: 0 0 auto;
   width: 100%;
   height: auto;
-  aspect-ratio: 1180 / 800;
+  aspect-ratio: 1180 / 792;
   max-height: none;
+  /* cqh gegen height:auto ist zirkulär und erzeugte Riesen-Lücken */
+  container-type: normal;
 }
-/* v1.82: .far darf im Stapel nicht collapsen (content-visibility) */
+/* v1.82/v1.83: .far darf im Stapel nicht collapsen (content-visibility) */
 html.orient-portrait .page-slide.far {
   content-visibility: visible;
   transform: translateZ(0);
   -webkit-transform: translateZ(0);
 }
+/* Stage füllt die Slide-Breite; Höhe aus Aspect – kein 100%-Restschwarz unter der Seite */
 html.orient-portrait .stage {
   width: 100%;
-  height: 100%;
+  height: auto;
   max-width: 100%;
-  aspect-ratio: 1180 / 800;
+  max-height: none;
+  aspect-ratio: 1180 / 792;
 }
 html.orient-portrait .stage-inner {
   position: absolute;
@@ -3867,10 +3873,11 @@ html.orient-portrait.stage-ipad-fill .page-slide {
   justify-content: center;
   align-items: stretch;
 }
-html.orient-portrait.stage-ipad-fill .stage {
+html.orient-portrait.stage-ipad-fill .stage,
+html.orient-portrait.stage-ipad-window .stage {
   width: 100%;
   height: auto;
-  aspect-ratio: 1180 / 800;
+  aspect-ratio: 1180 / 792;
   max-height: none;
   background: var(--stage-bg, #000);
 }
@@ -3883,4 +3890,22 @@ html.orient-portrait.stage-ipad-fill .stage-inner {
 html.orient-portrait #editorBtn,
 html.orient-portrait .editor-btn {
   display: none !important;
+}
+
+/* v1.83 CRITICAL: html.app-h-fixed setzt .page-slide { height:100% !important } –
+   im Hochformat würde jede Seite viewport-hoch → riesige schwarze Lücken (iPad;
+   Windows ohne app-h-fixed war ok). Stapel braucht height:auto. */
+html.orient-portrait.app-h-fixed .page-track {
+  height: auto !important;
+  max-height: none !important;
+  min-height: 100%;
+}
+html.orient-portrait.app-h-fixed .page-slide {
+  height: auto !important;
+  max-height: none !important;
+  flex: 0 0 auto !important;
+}
+html.orient-portrait.app-h-fixed .page-viewport {
+  height: 100% !important;
+  max-height: 100% !important;
 }
