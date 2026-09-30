@@ -3673,50 +3673,12 @@ html.overlay-scroll, html.overlay-scroll body { touch-action: auto; }
 }
 
 
-/* ---- v1.69 / v1.76: Editor Chrome-Leiste oben/unten umschalten ------------
-   Button rechts neben Stückliste — NUR Edit-Modus (nie Welcome/Viewer).
-   v1.76: Spezifität .btn.icon-btn.chrome-pos-btn schlägt .btn.icon-btn { display:inline-flex },
-   sonst war der Toggle im Viewer sichtbar. Klasse .chrome-bar-bottom am #app
-   verschiebt die gesamte .topbar inkl. ::before Backdrop/Blur nach unten;
-   Safe-Area unten. Temporär — Fertig/Viewer setzt zurück auf oben. */
+/* v1.88: Chrome-Position-Toggle entfernt — Topbar bleibt oben */
 .btn.icon-btn.chrome-pos-btn { display: none !important; }
-.app.edit-mode .btn.icon-btn.chrome-pos-btn {
-  display: inline-flex !important;
-  align-items: center;
-  justify-content: center;
-  color: #f0f0f0;
-}
-.app.edit-mode.chrome-bar-bottom .btn.icon-btn.chrome-pos-btn {
-  /* pressed / at-bottom visual */
-}
 
-/* v1.76: Editor top placement — same content padding as bottom chrome (slim).
-   Safe-area top only; no 24px stage floor. Bottom rule below overrides when toggled. */
-.app.edit-mode:not(.chrome-bar-bottom) .topbar {
+.app.edit-mode .topbar {
   padding-top: max(8px, env(safe-area-inset-top, 0px));
   padding-bottom: 8px;
-}
-
-.app.edit-mode.chrome-bar-bottom .topbar {
-  top: auto;
-  bottom: 0;
-  /* Statusleisten-Inset entfällt unten; Home-Indikator / Safe-Area unten */
-  padding-top: 8px;
-  padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
-  /* wrap rows pack toward the top of the bottom strip (above safe-area) */
-  align-content: flex-start;
-}
-
-/* Backdrop (::before top/bottom:0) moves with the bar automatically.
-   Explicit bottom anchoring keeps blur strip covering the bottom chrome. */
-.app.edit-mode.chrome-bar-bottom .topbar::before {
-  top: 0;
-  bottom: 0;
-}
-
-/* Seitenanzeige über der unteren Chrome-Leiste, nicht darunter verdeckt */
-.app.edit-mode.chrome-bar-bottom .page-indicator {
-  bottom: calc(max(8px, env(safe-area-inset-bottom, 0px)) + 52px);
 }
 
 
@@ -3930,7 +3892,7 @@ html.orient-portrait.app-h-fixed .page-viewport {
   top: 0;
   max-width: calc(100% - 8px);
   width: max-content;
-  min-width: 7rem;
+  min-width: 14rem; /* v1.88 */
   padding: 4px;
   box-sizing: border-box;
   background: transparent;
@@ -3972,7 +3934,7 @@ html.orient-portrait.app-h-fixed .page-viewport {
 .variant-caption-input {
   display: block;
   width: 100%;
-  min-width: 8rem;
+  min-width: 16rem; /* v1.88: doppelt so lang */
   border: 2px solid #000;
   border-radius: 6px;
   background: #fff;
@@ -3983,10 +3945,10 @@ html.orient-portrait.app-h-fixed .page-viewport {
   cursor: text;
 }
 .variant-caption-label {
-  color: #fff;
+  color: #3a3a3a; /* v1.88: dunkelgrau, kein Schatten */
   font: 700 0.95rem/1.25 system-ui, sans-serif;
   text-align: left;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.55);
+  text-shadow: none;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -4002,6 +3964,7 @@ html.orient-portrait.app-h-fixed .page-viewport {
   outline: 3px solid var(--accent, #dd007a);
 }
 
+/* v1.88: Varianten-Leiste wie Topbar – Overlay über dem Blatt, gleiche Farbe/Blur */
 .variant-bar {
   position: absolute;
   left: 0;
@@ -4015,8 +3978,33 @@ html.orient-portrait.app-h-fixed .page-viewport {
   gap: 8px;
   padding: 8px 12px;
   padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
-  background: rgba(12, 14, 18, 0.92);
-  border-top: 1px solid var(--border, #2e3644);
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
+  background: transparent;
+  border: none;
+  border-top: none;
+  isolation: isolate;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  filter: none;
+  pointer-events: none; /* Gesten durch leere Fläche; Buttons darunter auto */
+}
+.variant-bar::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(80, 80, 80, 0.48);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  z-index: 0;
+  pointer-events: none;
+}
+.variant-bar > * {
+  position: relative;
+  z-index: 1;
   pointer-events: auto;
 }
 .variant-bar[hidden] { display: none !important; }
@@ -4040,10 +4028,7 @@ html.orient-portrait.app-h-fixed .page-viewport {
   font-size: 0.85rem;
   font-weight: 700;
 }
-.app.variant-bar-visible .page {
-  /* Platz für die untere Leiste – Seite bleibt nutzbar */
-  padding-bottom: 52px;
-}
+/* Overlay: kein padding-bottom mehr – Leiste liegt über dem Blatt wie die Topbar */
 
 .variant-pick-backdrop {
   position: fixed;
@@ -4076,6 +4061,15 @@ html.orient-portrait.app-h-fixed .page-viewport {
 }
 
 /* Varianten-Seite: Annotationen aus – Unterteilung (.varianten-ok-tool) bleibt sichtbar */
+
+/* v1.88: Varianten-Seite – Trennlinien Viewer weiß, Editor schwarz */
+.app:not(.edit-mode) .varianten-stage .cell-split {
+  background: #ffffff;
+}
+.app.edit-mode .varianten-stage .cell-split {
+  background: #000000;
+}
+
 .app.varianten-page-active.edit-mode .layout-only-tool:not(.varianten-ok-tool),
 .app.varianten-page-active.edit-mode #toolRect,
 .app.varianten-page-active.edit-mode #toolCircle,

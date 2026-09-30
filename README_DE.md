@@ -2,7 +2,21 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.87
+**Version:** 1.88
+
+## Neu in 1.88
+
+- **Varianten-Leiste:** Auf Seite 1 (Varianten) und letzter Seite (Fehleranalyse) ausgeblendet – gelten immer für alle Varianten.
+- **Variante starten:** Tippen auf Varianten-Foto → aktive Variante setzen und automatisch zu Arbeitsschritte.
+- **Trennlinien Seite 1:** Viewer weiß, Editor schwarz.
+- **Varianten-Name:** Dunkelgrau ohne Schatten; Namensfeld doppelt so breit; Griff „Verschieben“.
+- **Navigation:** Spezialseiten brechen Wischen nicht mehr (Nav filtert pro pageGroup; Remap statt Sprung auf Seite 1).
+- **Übersicht:** Eine Kachel / Nummer pro Seitengruppe (keine Doppel-Thumbs für Varianten-Spezialisierungen).
+- **„Nur für eine Variante“:** Wandelt die **aktuelle** Seite um (keine neue Seite); gleiche Nummer/Gruppe; andere Varianten überspringen sie im Viewer.
+- **Varianten-Leiste Overlay:** Wie die Topbar – transparent mit `rgba(80,80,80,0.48)` + `blur(8px)`, liegt über dem Blatt (kein Seiten-Padding).
+- **Start:** Beim Öffnen/Neuladen immer Willkommensbildschirm — kein Auto-Wiederherstellen des letzten Projekts (Autosave in IndexedDB bleibt für die Sitzung).
+- **Chrome:** Umschalter „Werkzeugleiste nach unten/oben“ entfernt — Leiste bleibt oben.
+- **Service Worker:** Cache `anweisungen-shell-v1.88` und `?v=1.88`.
 
 ## Neu in 1.87
 

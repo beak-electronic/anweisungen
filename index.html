@@ -24,7 +24,7 @@
   <link rel="apple-touch-icon" sizes="152x152" href="apple-touch-icon-152.png" />
   <link rel="apple-touch-icon" sizes="120x120" href="apple-touch-icon-120.png" />
   <title>Anweisungen</title>
-  <link rel="stylesheet" href="styles.css?v=1.87" />
+  <link rel="stylesheet" href="styles.css?v=1.88" />
 </head>
 <body>
   <div class="app" id="app">
@@ -34,7 +34,6 @@
         <button type="button" class="btn sm menu-btn" id="menuBtn" aria-label="Menü" aria-haspopup="true">☰</button>
         <button type="button" class="btn sm label-btn toolbar-laden open-btn" id="ladenBtn" title="Projekt öffnen (.beak)" aria-label="Öffnen"><svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.2 18.6V6.4c0-.66.54-1.2 1.2-1.2h4.3l1.9 2.1h7c.66 0 1.2.54 1.2 1.2v2.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/><path d="M3.2 18.6l2.6-7.1c.17-.47.62-.8 1.13-.8H20.1c.83 0 1.4.82 1.13 1.6l-2.3 6.3H3.2z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg><span class="btn-label">Öffnen</span></button>
         <button type="button" class="btn sm label-btn pdf-view-btn" id="pdfViewBtn" title="Stückliste (PDF) anzeigen" aria-label="Stückliste PDF anzeigen"><svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2.8h8.6L19 7.2V21.2H6z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M14.6 2.8V7.2H19" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><rect x="3.2" y="11" width="13.6" height="7" rx="1.2" fill="currentColor"/><text x="10" y="16.55" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="5.6" font-weight="800" fill="#1b1f27" letter-spacing="0.2">PDF</text></svg><span class="btn-label">Stückliste</span></button>
-        <button type="button" class="btn sm icon-btn chrome-pos-btn" id="chromePosBtn" title="Werkzeugleiste nach unten" aria-label="Werkzeugleiste nach unten" aria-pressed="false"><svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.2" y="2.8" width="17.6" height="3.4" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 11.4V7.4M9.4 10L12 7.4l2.6 2.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12.6v4M9.4 14l2.6 2.6 2.6-2.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><rect x="3.2" y="17.8" width="17.6" height="3.4" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>
         <div class="tool-dual undo-group" role="group" aria-label="Rückgängig / Wiederholen">
           <button type="button" class="btn sm icon-btn tool-dual-btn" id="undoBtn" title="Rückgängig (Strg/⌘+Z)" aria-label="Rückgängig" disabled><svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 9.5h7a4.5 4.5 0 0 1 0 9H10" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 9.5l5.2-4.4v8.8z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg></button>
           <button type="button" class="btn sm icon-btn tool-dual-btn" id="redoBtn" title="Wiederholen (Strg+Y / ⌘+⇧+Z)" aria-label="Wiederholen" disabled><svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 9.5h-7a4.5 4.5 0 0 0 0 9H14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 9.5l-5.2-4.4v8.8z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg></button>
@@ -107,7 +106,7 @@
       <span class="variant-active-label" id="variantActiveLabel" hidden></span>
       <button type="button" class="btn sm" id="variantAddBtn" title="Seite für eine Variante spezialisieren">+ Variante</button>
       <button type="button" class="btn sm" id="variantSwitchBtn" title="Aktive Variante wechseln">Zwischen Varianten wechseln</button>
-      <button type="button" class="btn sm" id="variantOnlyBtn" title="Neue Seite nur für eine Variante">Nur für eine Variante</button>
+      <button type="button" class="btn sm" id="variantOnlyBtn" title="Aktuelle Seite nur für eine Variante (andere Varianten überspringen sie)">Nur für eine Variante</button>
     </div>
 
     <div class="status-flash" id="statusFlash" role="status" aria-live="polite"></div>
@@ -169,7 +168,7 @@
           oder als Home-Bildschirm-App nutzen. Nach dem ersten Laden hält der Service Worker die App-Shell offline bereit. Nach Viewport-/Statusleisten-Updates die Home-Bildschirm-App neu anlegen. Kein Backend, kein Upload-Link nötig. Projektdateien (<code>.beak</code>) werden nicht in den Offline-Cache gelegt.
         </div>
       </details>
-      <div class="drawer-version" id="appVersion">Anweisungen · Version 1.87</div>
+      <div class="drawer-version" id="appVersion">Anweisungen · Version 1.88</div>
     </nav>
 
     <main class="page" id="pageArea">
@@ -194,8 +193,8 @@
         <button type="button" class="btn touch welcome-btn" id="welcomeOpenBtn">Öffnen</button>
         <button type="button" class="btn touch welcome-btn welcome-tour-btn" id="welcomeTourBtn">Neu hier? Tour anzeigen</button>
       </div>
-      <p class="welcome-hint">Projekte speichern Sie als <code>.beak</code>-Datei. Der letzte Stand wird auf diesem Gerät automatisch wiederhergestellt.</p>
-      <p class="welcome-version" id="welcomeVersion">Anweisungen · Version 1.87</p>
+      <p class="welcome-hint">Projekte speichern Sie als <code>.beak</code>-Datei. Beim Start erscheint immer dieser Willkommensbildschirm — Öffnen lädt eine Datei.</p>
+      <p class="welcome-version" id="welcomeVersion">Anweisungen · Version 1.88</p>
     </div>
   </div>
 
@@ -305,6 +304,6 @@
 
   <script src="vendor/jszip.min.js"></script>
   <script src="vendor/pdf-lib.min.js"></script>
-  <script src="app.js?v=1.87"></script>
+  <script src="app.js?v=1.88"></script>
 </body>
 </html>

@@ -387,17 +387,53 @@
     return !!variantId && scope === variantId;
   }
 
-  /** Seiten in der aktuellen Navigationsreihenfolge (Viewer gefiltert, Editor alles). */
+  /** Seiten in Navigationsreihenfolge. Ab v1.88: Editor und Viewer gleich gefiltert
+   *  (pro pageGroup nur die für die aktive Variante sichtbare Seite) – verhindert
+   *  Doppel-Slots und Springen auf Seite 1 wenn Spezialseiten „unsichtbar“ sind. */
   function getNavPages() {
     const all = (state.doc && state.doc.pages) || [];
-    if (state.editMode || !hasMultipleVariants()) return all.slice();
+    if (!hasMultipleVariants()) return all.slice();
     const vid = state.activeVariantId;
     return all.filter((p) => pageVisibleInViewer(p, vid));
   }
 
+  /** Reale pageIndex → sichtbare Seite derselben Gruppe / nächster Nachbar (nie still auf 0 fallen). */
+  function remapToVisiblePageIndex(realIdx) {
+    const pages = state.doc.pages || [];
+    const nav = getNavPages();
+    if (!pages.length || !nav.length) return 0;
+    let idx = typeof realIdx === 'number' && isFinite(realIdx) ? Math.round(realIdx) : 0;
+    if (idx < 0) idx = 0;
+    if (idx >= pages.length) idx = pages.length - 1;
+    const cur = pages[idx];
+    if (cur && nav.indexOf(cur) >= 0) return idx;
+    /* Gleiche Gruppe: Spezialisierung der aktiven Variante, sonst Shared */
+    if (cur && !isFixedPage(cur) && !isVariantenPage(cur)) {
+      const group = pageGroupIdOf(cur);
+      const vid = state.activeVariantId;
+      if (vid) {
+        const spec = pages.find(
+          (p) => !isFixedPage(p) && pageGroupIdOf(p) === group && pageVariantScope(p) === vid
+        );
+        if (spec) return pages.indexOf(spec);
+      }
+      const shared = pages.find(
+        (p) => !isFixedPage(p) && pageGroupIdOf(p) === group && pageVariantScope(p) === 'all'
+      );
+      if (shared && nav.indexOf(shared) >= 0) return pages.indexOf(shared);
+    }
+    /* Nächster Nachbar in Originalreihenfolge, der in nav liegt */
+    for (let d = 1; d < pages.length; d++) {
+      for (const j of [idx - d, idx + d]) {
+        if (j >= 0 && j < pages.length && nav.indexOf(pages[j]) >= 0) return j;
+      }
+    }
+    return state.doc.pages.indexOf(nav[0]);
+  }
+
   function navIndexOfPageIndex(realIdx) {
     const pages = getNavPages();
-    const page = state.doc.pages[realIdx];
+    const page = state.doc.pages[remapToVisiblePageIndex(realIdx)];
     if (!page) return 0;
     const i = pages.indexOf(page);
     return i >= 0 ? i : 0;
@@ -442,6 +478,11 @@
       leaf.variantId = id;
       syncVariantsFromPage();
     }
+    /* Caption anlegen, falls leer – sonst erscheint Variante nicht in variantsList */
+    if (!String(leafCaption(leaf) || '').trim()) {
+      leaf.caption = 'Variante';
+      syncVariantsFromPage();
+    }
     state.activeVariantId = id;
     const rec = (state.variantStuecklisten && state.variantStuecklisten[id]) || null;
     state.stueckliste = rec;
@@ -449,6 +490,7 @@
     rebuildBeakUsage();
     const label = String(leafCaption(leaf) || '').trim() || 'Variante';
     const idx = state.doc.pages.findIndex((p) => isIndexPage(p));
+    /* Nach Variantenwahl Nav neu aufbauen (Filter), dann zur Arbeitsschritte-Tabelle */
     renderAll();
     if (idx >= 0) snapToIndex(idx, true);
     else snapToIndex(Math.min(1, state.doc.pages.length - 1), true);
@@ -465,7 +507,8 @@
     rebuildBeakUsage();
     updateVariantBar();
     if (opts.rerender !== false) {
-      const cur = state.doc.pageIndex;
+      const cur = remapToVisiblePageIndex(state.doc.pageIndex);
+      state.doc.pageIndex = cur;
       renderAll();
       snapToIndex(cur, false);
     }
@@ -528,27 +571,35 @@
     return clone;
   }
 
-  /** Neue Seite, die nur für eine Variante existiert (nicht in anderen Varianten sichtbar). */
-  function addVariantOnlyPage(variantId) {
+  /** v1.88: Aktuelle Seite auf nur eine Variante umstellen (keine neue Seite).
+   *  Gleiche Seitennummer/pageGroup; andere Varianten überspringen sie im Viewer. */
+  function convertCurrentPageToVariantOnly(variantId) {
     const v = variantById(variantId);
-    if (!v) return;
-    stopLiveCamera();
-    state.doc.pages = ensureBookends(state.doc.pages);
-    const page = makePage();
-    page.variantScope = variantId;
-    page.pageGroupId = page.id;
-    let idx = state.doc.pageIndex + 1;
-    const last = state.doc.pages.length - 1;
-    if (last >= 0 && isFehlerPage(state.doc.pages[last])) {
-      if (idx > last) idx = last;
-      if (isFehlerPage(currentPage())) idx = last;
+    if (!v) return null;
+    const page = currentPage();
+    if (!page || isFixedPage(page) || isVariantenPage(page)) {
+      flash('Nur Layout-Seiten können auf eine Variante beschränkt werden', 4000, 'error');
+      return null;
     }
-    state.doc.pages.splice(idx, 0, page);
+    stopLiveCamera();
+    if (!page.pageGroupId) page.pageGroupId = page.id;
+    if (pageVariantScope(page) === variantId) {
+      setActiveVariant(variantId);
+      flash('Seite gilt bereits nur für „' + v.label + '“');
+      return page;
+    }
+    page.variantScope = variantId;
     setActiveVariant(variantId, { rerender: false });
     renderAll();
-    snapToIndex(idx, true);
+    snapToIndex(state.doc.pages.indexOf(page), true);
     if (typeof historyCommit === 'function') historyCommit();
-    flash('Neue Seite nur für „' + v.label + '“');
+    flash('Seite gilt nur für „' + v.label + '“');
+    return page;
+  }
+
+  /** @deprecated Name – leitet auf convertCurrentPageToVariantOnly um */
+  function addVariantOnlyPage(variantId) {
+    return convertCurrentPageToVariantOnly(variantId);
   }
 
   async function pickVariantFromList(title, variants) {
@@ -599,13 +650,15 @@
     const activeEl = document.getElementById('variantActiveLabel');
     syncVariantsFromPage();
     const variants = variantsList();
-    const show = !!(state.editMode && variants.length >= 2);
+    const page = currentPage();
+    /* v1.88: Varianten- und Fehlerseite gelten immer für alle → keine untere Leiste */
+    const hideBookendBar = !!(page && (isVariantenPage(page) || isFehlerPage(page)));
+    const show = !!(state.editMode && variants.length >= 2 && !hideBookendBar);
     bar.hidden = !show;
     el.app.classList.toggle('variant-bar-visible', show);
     if (!show) return;
 
-    const page = currentPage();
-    const onLayout = page && !isFixedPage(page);
+    const onLayout = page && !isFixedPage(page) && !isVariantenPage(page);
     const scope = onLayout ? pageVariantScope(page) : 'all';
     const group = onLayout ? pageGroupIdOf(page) : null;
     const siblings = group ? pagesSharingGroup(group) : [];
@@ -692,9 +745,14 @@
   async function onVariantOnlyClick() {
     const variants = variantsList();
     if (!variants.length) return;
-    const id = await pickVariantFromList('Neue Seite nur für welche Variante?', variants);
+    const page = currentPage();
+    if (!page || isFixedPage(page) || isVariantenPage(page)) {
+      flash('Nur Layout-Seiten können auf eine Variante beschränkt werden', 4000, 'error');
+      return;
+    }
+    const id = await pickVariantFromList('Diese Seite nur für welche Variante?', variants);
     if (!id) return;
-    addVariantOnlyPage(id);
+    convertCurrentPageToVariantOnly(id);
   }
 
   function fehlerRowHasContent(r) {
@@ -1121,7 +1179,6 @@
     toolBeakNr: document.getElementById('toolBeakNr'),
     stuecklisteAddBtn: document.getElementById('stuecklisteAddBtn'),
     pdfViewBtn: document.getElementById('pdfViewBtn'),
-    chromePosBtn: document.getElementById('chromePosBtn'),
     annColorBar: document.getElementById('annColorBar'),
     annArrowBar: document.getElementById('annArrowBar'),
     toolArrow: document.getElementById('toolArrow'),
@@ -1385,7 +1442,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.87';
+  const APP_VERSION = '1.88';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -2488,35 +2545,28 @@
        Fertig / Verlassen setzt zurück. */
     setChromeBarBottom(false);
     updateChromeForPage();
+    state.doc.pageIndex = remapToVisiblePageIndex(state.doc.pageIndex);
     renderAll();
+    snapToIndex(state.doc.pageIndex, false);
     closeMenu();
     scheduleAnnColorBar();
     scheduleViewerChromeCompact();
     scheduleEditTopbarLayout();
   }
 
-  /* v1.69: gesamte Topbar (Buttons + Backdrop/Blur) oben ↔ unten; nur Editor. */
+  /* v1.88: Chrome-Position-Toggle entfernt — Topbar bleibt oben. */
   function isChromeBarBottom() {
-    return !!(el.app && el.app.classList.contains('chrome-bar-bottom'));
+    return false;
   }
-  function setChromeBarBottom(on) {
+  function setChromeBarBottom(_on) {
     if (!el.app) return;
-    const want = !!on && !!state.editMode;
-    el.app.classList.toggle('chrome-bar-bottom', want);
-    const btn = el.chromePosBtn;
-    if (btn) {
-      btn.setAttribute('aria-pressed', want ? 'true' : 'false');
-      const label = want ? 'Werkzeugleiste nach oben' : 'Werkzeugleiste nach unten';
-      btn.title = label;
-      btn.setAttribute('aria-label', label);
-    }
+    el.app.classList.remove('chrome-bar-bottom');
     try { scheduleAnnColorBar(); } catch (_) {}
     try { if (el.statusFlash && el.statusFlash.classList.contains('show')) positionStatusFlash(); } catch (_) {}
     try { scheduleEditTopbarLayout(); } catch (_) {}
   }
   function toggleChromeBarPosition() {
-    if (!state.editMode) return;
-    setChromeBarBottom(!isChromeBarBottom());
+    /* entfernt */
   }
 
   /* v1.60: Viewer-only — hide topbar button text labels when clusters would overlap
@@ -3147,11 +3197,8 @@
   function snapToIndex(index, animate) {
     const nav = getNavPages();
     if (!nav.length) return;
-    /* index = reale Seitenposition; ggf. auf nächste sichtbare Seite korrigieren */
-    if (!state.doc.pages[index] || nav.indexOf(state.doc.pages[index]) < 0) {
-      index = realIndexFromNavIndex(navIndexOfPageIndex(index));
-    }
-    index = state.doc.pages.indexOf(state.doc.pages[index]);
+    /* index = reale Seitenposition; unsichtbare Spezialseiten auf sichtbare Gruppe mappen */
+    index = remapToVisiblePageIndex(index);
     if (index < 0) index = state.doc.pages.indexOf(nav[0]);
     const prevIndex = state.doc.pageIndex;
     let teleportRestored = false;
@@ -3952,7 +3999,7 @@
           if (state.editMode) {
             const grip = document.createElement('div');
             grip.className = 'variant-caption-drag';
-            grip.textContent = '⋮⋮ Name verschieben';
+            grip.textContent = '⋮⋮ Verschieben';
             grip.setAttribute('aria-hidden', 'true');
             capWrap.appendChild(grip);
             const inp = document.createElement('input');
@@ -3991,14 +4038,20 @@
           if (state.editMode) bindVariantCaptionDrag(capWrap, leaf, cell);
         }
 
-        if (!state.editMode && hasPhoto) {
-          leaf.classList.add('variant-tap-target');
-          leaf.addEventListener('click', (e) => {
-            if (trackDragDidPageSwipe) return;
-            if (e.target.closest('.variant-caption-wrap')) return;
-            e.stopPropagation();
-            enterVariantFromLeaf(cell);
-          });
+        if (hasPhoto) {
+          const canStart =
+            !state.splitTool && !state.photoMoveMode && !state.photoRotateMode && !state.teleportMode;
+          if (canStart || !state.editMode) {
+            leaf.classList.add('variant-tap-target');
+            leaf.addEventListener('click', (e) => {
+              if (trackDragDidPageSwipe) return;
+              if (e.target.closest('.variant-caption-wrap')) return;
+              if (e.target.closest('.cell-kamera-wrap')) return;
+              if (state.editMode && (state.splitTool || state.photoMoveMode || state.photoRotateMode || state.teleportMode)) return;
+              e.stopPropagation();
+              enterVariantFromLeaf(cell);
+            });
+          }
         }
       }
 
@@ -10156,42 +10209,44 @@
       overviewTitleEl.textContent = projName ? ('Übersicht - ' + projName) : 'Übersicht';
     }
 
-    const pages = state.doc.pages;
-    const current = state.doc.pageIndex;
+    /* v1.88: Übersicht = Navigationsreihenfolge (eine Kachel pro pageGroup / Varianten-Sicht) */
+    const pages = getNavPages();
+    const currentReal = remapToVisiblePageIndex(state.doc.pageIndex);
     const buttons = [];
 
-    for (let i = 0; i < pages.length; i++) {
+    for (let ni = 0; ni < pages.length; ni++) {
+      const page = pages[ni];
+      const realIdx = state.doc.pages.indexOf(page);
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'overview-thumb' + (i === current ? ' current' : '');
-      btn.dataset.pageIndex = String(i);
+      btn.className = 'overview-thumb' + (realIdx === currentReal ? ' current' : '');
+      btn.dataset.pageIndex = String(realIdx);
 
       const badge = document.createElement('span');
       badge.className = 'overview-badge';
-      badge.textContent = String(i + 1);
+      badge.textContent = String(ni + 1);
       btn.appendChild(badge);
 
-      let pageLabel = 'Seite ' + (i + 1);
-      if (i === current) btn.setAttribute('aria-current', 'page');
-      if (isVariantenPage(pages[i])) {
-        pageLabel = pages[i].title || 'Varianten';
-      } else if (isIndexPage(pages[i])) {
-        /* v1.34/v1.85: Index-Beschriftung immer „Arbeitsschritte“ */
+      let pageLabel = 'Seite ' + (ni + 1);
+      if (realIdx === currentReal) btn.setAttribute('aria-current', 'page');
+      if (isVariantenPage(page)) {
+        pageLabel = page.title || 'Varianten';
+      } else if (isIndexPage(page)) {
         pageLabel = 'Arbeitsschritte';
-      } else if (isFehlerPage(pages[i])) pageLabel = (pages[i].title || 'Fehleranalyse');
+      } else if (isFehlerPage(page)) pageLabel = (page.title || 'Fehleranalyse');
       btn.setAttribute('aria-label', pageLabel);
       btn.title = pageLabel;
-      if (isVariantenPage(pages[i]) || isIndexPage(pages[i]) || isFehlerPage(pages[i])) {
+      if (isVariantenPage(page) || isIndexPage(page) || isFehlerPage(page)) {
         const cap = document.createElement('span');
         cap.className = 'overview-caption';
         cap.textContent = pageLabel;
         btn.appendChild(cap);
       }
 
-      const key = thumbCacheKey(pages[i]);
+      const key = thumbCacheKey(page);
       let cached = thumbCache.map.get(key);
       if (!cached) {
-        cached = lookupPersistedThumb(pages[i]);
+        cached = lookupPersistedThumb(page);
         if (cached) thumbCache.map.set(key, cached);
       }
       if (cached) {
@@ -10834,9 +10889,6 @@
     if (only) only.addEventListener('click', () => { void onVariantOnlyClick(); });
   })();
 
-  if (el.chromePosBtn) {
-    el.chromePosBtn.addEventListener('click', () => toggleChromeBarPosition());
-  }
   el.ladenBtn.addEventListener('click', () => { void load(); });
   el.sichernBtn.addEventListener('click', () => { void save(); });
   if (el.drawerOpenBtn) el.drawerOpenBtn.addEventListener('click', () => { closeMenu(); void load(); });
@@ -11022,7 +11074,9 @@
   }
   if (el.lastPageBtn) {
     el.lastPageBtn.addEventListener('click', () => {
-      const last = state.doc.pages.length - 1;
+      const nav = getNavPages();
+      if (!nav.length) return;
+      const last = state.doc.pages.indexOf(nav[nav.length - 1]);
       if (last >= 0 && state.doc.pageIndex !== last) goToPage(last);
       updateChromeForPage();
     });
@@ -12111,69 +12165,19 @@
     if (!persistAfter) { clearTimeout(store.timer); store.timer = 0; store.dirty = false; }
   }
   async function bootRestore() {
-    let parsed = null;
+    /* v1.88: Cold Start immer Willkommen — kein Auto-Öffnen des letzten Projekts.
+       IndexedDB-/localStorage-Autosave bleibt für spätere Sitzungen erhalten
+       (wird bei Neues Projekt / Öffnen wie bisher überschrieben bzw. genutzt). */
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) parsed = JSON.parse(raw);
-    } catch (_) { parsed = null; }
-    if (parsed && parsed._idb) {
-      renderAll(); // leerer Rahmen, bis IndexedDB geladen ist (Sekundenbruchteile)
-      try {
-        const rec = await idbLoadCurrent();
-        if (rec && rec.doc && applyLoaded(rec.doc)) {
-          state.stueckliste = rec.stueckliste;
-          try {
-            hydratePersistedThumbs(rec.thumbs);
-            restampPersistedThumbSigs();
-          } catch (_) {}
-          if (rec.fileName) loadedSaveFileName = rec.fileName;
-          updateStuecklisteUi();
-          rebuildBeakUsage();
-          renderAll();
-          try { applyRememberedPage(); } catch (_) {}
-          enterOpenDocument({ clearDirty: true, hideChrome: true });
-          if (rec.missing > 0) {
-            setTimeout(() => flash(rec.missing + ' Datei(en) im Browser-Speicher nicht gefunden – bitte Projekt (.beak) über „Öffnen“ laden', 9000, 'error'), 600);
-          }
-          bootFinish(false);
-          return;
-        }
-      } catch (err) {
-        console.warn('Browser-Speicher lesen fehlgeschlagen', err);
-      }
-      // IndexedDB nicht lesbar: Layout ohne Fotos zeigen, aber NICHTS überschreiben
-      store.blocked = true;
-      store.lastWarnAt = Date.now();
-      if (!applyLoaded(parsed)) { state.doc = makeDocument(); renderAll(); }
-      else { try { applyRememberedPage(); } catch (_) {} }
-      enterOpenDocument({ clearDirty: true, hideChrome: true });
-      setTimeout(() => flash('Browser-Speicher nicht lesbar – Fotos fehlen. Bitte Projekt (.beak) über „Öffnen“ laden (es wurde nichts überschrieben)', 10000, 'error'), 600);
-      bootFinish(false);
-      return;
-    }
-    // Älteres Backup (vor v1.17) bzw. kein Backup
-    try {
-      if (parsed) {
-        const missing = countPhotosWithoutData(parsed);
-        if (missing > 0) {
-          setTimeout(() => flash('Älteres Browser-Backup ohne Fotos – bitte Projekt (.beak) über „Öffnen“ laden', 9000, 'error'), 600);
-        }
-        if (!applyLoaded(parsed)) {
-          state.doc = makeDocument();
-          renderAll();
-        } else {
-          try { applyRememberedPage(); } catch (_) {}
-        }
-        enterOpenDocument({ clearDirty: true, hideChrome: true });
-        bootFinish(true); // in IndexedDB übernehmen
-        return;
-      }
-      // Kein Backup → Willkommen (kein Dokument offen)
-      showWelcomeScreen();
-    } catch (_) {
       state.doc = makeDocument();
-      showWelcomeScreen();
+      state.stueckliste = null;
+      state.variantStuecklisten = {};
+      state.activeVariantId = null;
+      renderAll();
+    } catch (_) {
+      try { state.doc = makeDocument(); } catch (_) {}
     }
+    showWelcomeScreen();
     bootFinish(false);
   }
 
