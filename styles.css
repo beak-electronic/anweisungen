@@ -21,7 +21,8 @@
   /* v1.50/v1.52/v1.67: oberer Canvas-Inset – opake Statusleiste (black) liefert oft safe-area-top=0;
      mind. 24px, damit Inhalt auf iPad Air unter der schwarzen Leiste sitzt, nicht darunter. */
   --stage-top-inset: max(24px, env(safe-area-inset-top, 0px));
-  --chrome-clearance: calc(max(8px, var(--stage-top-inset)) + 36px);
+  /* v1.76: clearance follows slim topbar (pad 8 + ~34 btn), plus real safe-area */
+  --chrome-clearance: calc(max(8px, env(safe-area-inset-top, 0px)) + 50px);
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
@@ -69,8 +70,9 @@ button { -webkit-tap-highlight-color: transparent; }
   justify-content: space-between;
   gap: 8px;
   padding: 8px 12px;
-  /* v1.26/v1.28/v1.67: opaque black status bar – Topbar unter Leiste (Inset, mind. 24px). */
-  padding-top: max(8px, var(--stage-top-inset));
+  /* v1.76: slim chrome like bottom bar — 8px + real safe-area only (no 24px --stage-top-inset floor).
+     --stage-top-inset stays for page-viewport / iPad Fill; topbar height matches chrome-bar-bottom. */
+  padding-top: max(8px, env(safe-area-inset-top, 0px));
   padding-left: max(12px, env(safe-area-inset-left, 0px));
   padding-right: max(12px, env(safe-area-inset-right, 0px));
   background: transparent; /* Buttons schweben über der Seite */
@@ -2672,9 +2674,10 @@ html.stage-ipad-fill .app::before {
   content: none;
   display: none;
 }
-/* Übersicht (Mitte): absolute Zentrierung ohne translate (Hauptregel .top-center) */
+/* Übersicht (Mitte): absolute Zentrierung ohne translate (Hauptregel .top-center)
+   v1.76: same slim inset as .topbar padding-top (not --stage-top-inset 24px floor). */
 .top-center {
-  top: max(8px, var(--stage-top-inset));
+  top: max(8px, env(safe-area-inset-top, 0px));
   left: 0;
   right: 0;
   margin: 0 auto;
@@ -3651,19 +3654,28 @@ html.overlay-scroll, html.overlay-scroll body { touch-action: auto; }
 }
 
 
-/* ---- v1.69: Editor Chrome-Leiste oben/unten umschalten --------------------
-   Button rechts neben Stückliste (nur Edit-Modus). Klasse .chrome-bar-bottom
-   am #app verschiebt die gesamte .topbar inkl. ::before Backdrop/Blur nach
-   unten; Safe-Area unten. Temporär — Fertig/Viewer setzt zurück auf oben. */
-.chrome-pos-btn { display: none; }
-.app.edit-mode .chrome-pos-btn {
-  display: inline-flex;
+/* ---- v1.69 / v1.76: Editor Chrome-Leiste oben/unten umschalten ------------
+   Button rechts neben Stückliste — NUR Edit-Modus (nie Welcome/Viewer).
+   v1.76: Spezifität .btn.icon-btn.chrome-pos-btn schlägt .btn.icon-btn { display:inline-flex },
+   sonst war der Toggle im Viewer sichtbar. Klasse .chrome-bar-bottom am #app
+   verschiebt die gesamte .topbar inkl. ::before Backdrop/Blur nach unten;
+   Safe-Area unten. Temporär — Fertig/Viewer setzt zurück auf oben. */
+.btn.icon-btn.chrome-pos-btn { display: none !important; }
+.app.edit-mode .btn.icon-btn.chrome-pos-btn {
+  display: inline-flex !important;
   align-items: center;
   justify-content: center;
   color: #f0f0f0;
 }
-.app.edit-mode.chrome-bar-bottom .chrome-pos-btn {
+.app.edit-mode.chrome-bar-bottom .btn.icon-btn.chrome-pos-btn {
   /* pressed / at-bottom visual */
+}
+
+/* v1.76: Editor top placement — same content padding as bottom chrome (slim).
+   Safe-area top only; no 24px stage floor. Bottom rule below overrides when toggled. */
+.app.edit-mode:not(.chrome-bar-bottom) .topbar {
+  padding-top: max(8px, env(safe-area-inset-top, 0px));
+  padding-bottom: 8px;
 }
 
 .app.edit-mode.chrome-bar-bottom .topbar {

@@ -2,7 +2,13 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.75
+**Version:** 1.76
+
+## Neu in 1.76
+
+- **Werkzeugleiste schlank:** Obere Chrome-Leiste hat wieder dieselbe Höhe wie die untere (Padding 8px + reale Safe-Area; kein 24px-`--stage-top-inset`-Floor mehr in der Topbar).
+- **Chrome-Position-Toggle nur Editor:** „Werkzeugleiste nach unten/oben“ neben Stückliste ist durch höhere CSS-Spezifität (`.btn.icon-btn.chrome-pos-btn`) außerhalb des Edit-Modus unsichtbar (Welcome/Viewer).
+- **Service Worker:** Cache `anweisungen-shell-v1.76` und `?v=1.76`.
 
 ## Neu in 1.75
 - **BEAK-Nr.-Werkzeug:** Farbe und Deckkraft entsprechen jetzt den Kreis-/Text-Werkzeugen.
