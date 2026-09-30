@@ -2,7 +2,21 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.79
+**Version:** 1.81
+
+## Neu in 1.81
+
+- **Bildschirmfüllend ohne Seitenbalken:** Fill skaliert die logische Seite (1156×803) per **Width+Height-Fill** (`--page-scale-x/y`) auf die volle Bühne – keine schwarzen Letterbox-Pfeiler links/rechts. Pinker Titelstreifen und Seiteninhalt bleiben sichtbar (kein Cover-Crop oben). **Fenster** darf weiter Letterbox haben. Alte `.beak` passen sich automatisch an (`updatePageScale` / Viewport).
+- **Highlight nur auf Fotofeld:** Highlight einschalten, dann ein Foto-Feld antippen – der 50 %-weiße Schleier liegt nur auf diesem Bereich; schwarze Trennlinien zwischen Fotos bleiben schwarz. Rect/Kreis stanzen weiterhin Löcher. Persistenz: `highlight` + `highlightLeafId` in der Seite/`.beak`.
+- **Hochformat:** Bei Wechsel Quer→Hoch stapeln die Dokumentseiten vertikal; Finger-Scroll wie eine Liste. Der **Editor**-Button ist im Hochformat ausgeblendet (Editor nur Querformat). Querformat: bisheriges Seiten-/Wisch-Verhalten.
+- **Service Worker:** Cache `anweisungen-shell-v1.81` und `?v=1.81`.
+
+## Neu in 1.80
+
+- **Bildschirmfüllend: volle Seite sichtbar:** Fill skaliert wieder per **Contain** (`Math.min`) – magenta Titelstreifen (z. B. „200.434 PA 500…“) und gesamte Seite (Tabelle) werden nicht mehr oben weggeschnitten. Unten bündig, horizontal zentriert; Letterbox außen schwarz.
+- **Schlanker oberer Canvas-Inset:** `--stage-top-inset` nur noch `env(safe-area-inset-top)` – kein 24px-Floor mehr. Der dicke schwarze Band unter der iPad-Uhr entfällt (opake Statusleiste `black` liefert oft Safe-Area 0). **Fenster** ebenfalls schlanker oben. Statusleiste bleibt **opaque black** (nicht translucent). Schlanke Editor-Topbar aus 1.76 unverändert.
+- **Alte .beak automatisch:** Layout bleibt im logischen 1156×803-Raum; `updatePageScale` / Viewport greifen beim Öffnen und bei Resize – kein manuelles Neu-Anlegen nötig.
+- **Service Worker:** Cache `anweisungen-shell-v1.80` und `?v=1.80`.
 
 ## Neu in 1.79
 

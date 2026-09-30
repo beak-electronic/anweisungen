@@ -2,7 +2,14 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.80
+**Version:** 1.81
+
+## Neu in 1.81
+
+- **Bildschirmfüllend ohne Seitenbalken:** Fill skaliert die logische Seite (1156×803) per **Width+Height-Fill** (`--page-scale-x/y`) auf die volle Bühne – keine schwarzen Letterbox-Pfeiler links/rechts. Pinker Titelstreifen und Seiteninhalt bleiben sichtbar (kein Cover-Crop oben). **Fenster** darf weiter Letterbox haben. Alte `.beak` passen sich automatisch an (`updatePageScale` / Viewport).
+- **Highlight nur auf Fotofeld:** Highlight einschalten, dann ein Foto-Feld antippen – der 50 %-weiße Schleier liegt nur auf diesem Bereich; schwarze Trennlinien zwischen Fotos bleiben schwarz. Rect/Kreis stanzen weiterhin Löcher. Persistenz: `highlight` + `highlightLeafId` in der Seite/`.beak`.
+- **Hochformat:** Bei Wechsel Quer→Hoch stapeln die Dokumentseiten vertikal; Finger-Scroll wie eine Liste. Der **Editor**-Button ist im Hochformat ausgeblendet (Editor nur Querformat). Querformat: bisheriges Seiten-/Wisch-Verhalten.
+- **Service Worker:** Cache `anweisungen-shell-v1.81` und `?v=1.81`.
 
 ## Neu in 1.80
 

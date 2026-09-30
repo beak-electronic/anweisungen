@@ -97,7 +97,7 @@
   }
 
   function makePage() {
-    return { id: uid('p'), kind: 'layout', root: makeLeaf(null), annotations: [], highlight: false };
+    return { id: uid('p'), kind: 'layout', root: makeLeaf(null), annotations: [], highlight: false, highlightLeafId: null };
   }
 
   function makeFehlerRow(date, description, cause, remedy, sourcePageId) {
@@ -797,7 +797,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.80';
+  const APP_VERSION = '1.81';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -1872,6 +1872,11 @@
 
   function setEditMode(on) {
     try { hideCopyPasteCallout(); } catch (_) {}
+    /* v1.81: im Hochformat kein Editor */
+    if (on && document.documentElement.classList.contains('orient-portrait')) {
+      try { flash('Editor nur im Querformat', 2200); } catch (_) {}
+      on = false;
+    }
     state.editMode = !!on;
     el.app.classList.toggle('edit-mode', state.editMode);
     /* Editor: always visible. Leaving editor → show then start viewer idle timer. */
@@ -2530,6 +2535,12 @@
   }
 
   function applyTrackTransform(px, withAnim, durationMs) {
+    if (document.documentElement.classList.contains('orient-portrait')) {
+      trackOffsetPx = 0;
+      clearTrackTransition();
+      if (el.pageTrack) el.pageTrack.style.transform = '';
+      return;
+    }
     trackOffsetPx = px;
     if (withAnim) {
       const ms = durationMs != null ? durationMs : 480;
@@ -2656,6 +2667,7 @@
 
   function onViewportPointerDown(e) {
     if (e.button != null && e.button !== 0) return;
+    if (document.documentElement.classList.contains('orient-portrait')) return; /* v1.81: vertikal scrollen */
     if (isPageDragBlocked(e.target)) return;
     if (drag) return;
     if (state.liveLeafId) {
@@ -2825,6 +2837,9 @@
       /* v1.44: Tap setzt Swipe-Flag zurück, damit click auf Kamera/Fotos nach
          einem früheren Seitenwechsel nicht fälschlich unterdrückt wird. */
       if (isTap) trackDragDidPageSwipe = false;
+      if (isTap && state.editMode) {
+        try { if (trySetHighlightLeafFromTarget(t)) { snapToIndex(state.doc.pageIndex, false); return; } } catch (_) {}
+      }
       if (!state.editMode) {
         /* v1.33: Leerer View-Mode-Tap toggelt die Floating-Buttons. Interaktive
            Ziele behalten ihr bisheriges Verhalten; ein Nicht-Tap-Settle zeigt
@@ -4792,11 +4807,63 @@
     return panel;
   }
 
-  /* ---- v1.67 Highlight-Schleier ------------------------------------------------ */
+  /* ---- v1.67/v1.81 Highlight-Schleier (nur gewähltes Fotofeld) ---------------- */
+  function pageHighlightLeafId(page) {
+    if (!page || !page.highlight) return null;
+    const id = page.highlightLeafId;
+    return (typeof id === 'string' && id) ? id : null;
+  }
+
+  function pageHasHighlight(page) {
+    return !!(page && page.kind === 'layout' && page.highlight);
+  }
+
+  /** Blatt-Rechteck in % der Layout-Fläche (0–100), inkl. Split-Lücken (schwarz). */
+  function leafRectPercentInRoot(root, leafId, gapPctW, gapPctH) {
+    if (!root || !leafId) return null;
+    const gapW = Math.max(0, Number(gapPctW) || 0);
+    const gapH = Math.max(0, Number(gapPctH) || 0);
+    function walk(cell, x, y, w, h) {
+      if (!cell) return null;
+      if (cell.type === 'leaf') {
+        return cell.id === leafId ? { x: x, y: y, w: w, h: h } : null;
+      }
+      if (cell.type !== 'split') return null;
+      const ratio = clamp(cell.ratio, 0.15, 0.85);
+      if (cell.dir === 'v') {
+        const inner = Math.max(0.01, w - gapW);
+        const aw = Math.max(0.01, inner * ratio);
+        const bw = Math.max(0.01, inner - aw);
+        return walk(cell.a, x, y, aw, h) || walk(cell.b, x + aw + gapW, y, bw, h);
+      }
+      const inner = Math.max(0.01, h - gapH);
+      const ah = Math.max(0.01, inner * ratio);
+      const bh = Math.max(0.01, inner - ah);
+      return walk(cell.a, x, y, w, ah) || walk(cell.b, x, y + ah + gapH, w, bh);
+    }
+    return walk(root, 0, 0, 100, 100);
+  }
+
+  function highlightGapPct() {
+    /* 2 mm Rahmen/Lücke ≈ 0,65 % der logischen Breite (siehe Kopfkommentar) */
+    const px = (2 / 25.4) * 96;
+    return {
+      w: (px / PAGE_REF_W) * 100,
+      h: (px / PAGE_REF_H) * 100,
+    };
+  }
+
   function buildHighlightVeil(page) {
+    const leafId = pageHighlightLeafId(page);
+    if (!leafId) return null;
+    const gaps = highlightGapPct();
+    const leafPct = leafRectPercentInRoot(page.root, leafId, gaps.w, gaps.h);
+    if (!leafPct || leafPct.w < 0.2 || leafPct.h < 0.2) return null;
+
     const veil = document.createElement('div');
     veil.className = 'highlight-veil';
     veil.setAttribute('aria-hidden', 'true');
+    veil.dataset.highlightLeafId = leafId;
     const svgNS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(svgNS, 'svg');
     svg.setAttribute('width', '100%');
@@ -4808,9 +4875,12 @@
     const mid = 'hlmask-' + String(page && page.id ? page.id : 'x').replace(/[^a-zA-Z0-9_-]/g, '');
     mask.setAttribute('id', mid);
     mask.setAttribute('maskUnits', 'userSpaceOnUse');
+    /* Weiß nur im Fotofeld – schwarze Split-Lücken bleiben unberührt */
     const full = document.createElementNS(svgNS, 'rect');
-    full.setAttribute('x', '0'); full.setAttribute('y', '0');
-    full.setAttribute('width', '100'); full.setAttribute('height', '100');
+    full.setAttribute('x', String(leafPct.x));
+    full.setAttribute('y', String(leafPct.y));
+    full.setAttribute('width', String(leafPct.w));
+    full.setAttribute('height', String(leafPct.h));
     full.setAttribute('fill', '#fff');
     mask.appendChild(full);
     const anns = (page && Array.isArray(page.annotations)) ? page.annotations : [];
@@ -4837,17 +4907,15 @@
     defs.appendChild(mask);
     svg.appendChild(defs);
     const cover = document.createElementNS(svgNS, 'rect');
-    cover.setAttribute('x', '0'); cover.setAttribute('y', '0');
-    cover.setAttribute('width', '100'); cover.setAttribute('height', '100');
+    cover.setAttribute('x', String(leafPct.x));
+    cover.setAttribute('y', String(leafPct.y));
+    cover.setAttribute('width', String(leafPct.w));
+    cover.setAttribute('height', String(leafPct.h));
     cover.setAttribute('fill', 'rgba(255,255,255,0.5)');
     cover.setAttribute('mask', 'url(#' + mid + ')');
     svg.appendChild(cover);
     veil.appendChild(svg);
     return veil;
-  }
-
-  function pageHasHighlight(page) {
-    return !!(page && page.kind === 'layout' && page.highlight);
   }
 
   function updateHighlightToolUI() {
@@ -4864,16 +4932,56 @@
     const page = currentPage();
     if (!page || isFixedPage(page)) return;
     page.highlight = !page.highlight;
+    if (!page.highlight) {
+      page.highlightLeafId = null;
+    } else if (!pageHighlightLeafId(page)) {
+      try { flash('Highlight: bitte Fotofeld antippen', 2800); } catch (_) {}
+    }
     updateHighlightToolUI();
     renderAll();
     if (typeof historyCommit === 'function') historyCommit();
   }
 
-  function drawHighlightVeilCanvas(ctx, annotations, W, H) {
-    /* Weiße 50%-Abdeckung mit Löchern an Rect/Ellipse – vor den Annotation-Strichen */
+  /** v1.81: bei aktivem Highlight Fotofeld antippen → Schleier nur dort */
+  function trySetHighlightLeafFromTarget(target) {
+    if (!state.editMode || !target || !target.closest) return false;
+    const page = currentPage();
+    if (!pageHasHighlight(page) || isFixedPage(page)) return false;
+    if (target.closest('.cell-kamera-wrap, .ann, .split-handle, .ann-delete, .handle, .topbar, .drawer')) return false;
+    const leafEl = target.closest('.cell-leaf');
+    if (!leafEl) return false;
+    const leafId = leafEl.dataset.leafId;
+    if (!leafId || !findLeaf(page.root, leafId)) return false;
+    if (page.highlightLeafId === leafId) return false;
+    page.highlightLeafId = leafId;
+    updateHighlightToolUI();
+    renderAll();
+    if (typeof historyCommit === 'function') historyCommit();
+    try { flash('Highlight-Fotofeld gesetzt', 1600); } catch (_) {}
+    return true;
+  }
+
+  function drawHighlightVeilCanvas(ctx, page, annotations, W, H, layoutBox) {
+    /* Weiße 50%-Abdeckung nur über dem gewählten Fotofeld; Split-Lücken bleiben schwarz */
+    const leafId = pageHighlightLeafId(page);
+    if (!leafId || !page || !page.root) return;
+    const gaps = highlightGapPct();
+    const leafPct = leafRectPercentInRoot(page.root, leafId, gaps.w, gaps.h);
+    if (!leafPct) return;
+    const bx = layoutBox && typeof layoutBox.x === 'number' ? layoutBox.x : 0;
+    const by = layoutBox && typeof layoutBox.y === 'number' ? layoutBox.y : 0;
+    const bw = layoutBox && typeof layoutBox.w === 'number' ? layoutBox.w : W;
+    const bh = layoutBox && typeof layoutBox.h === 'number' ? layoutBox.h : H;
+    const lx = bx + (leafPct.x / 100) * bw;
+    const ly = by + (leafPct.y / 100) * bh;
+    const lw = (leafPct.w / 100) * bw;
+    const lh = (leafPct.h / 100) * bh;
     ctx.save();
+    ctx.beginPath();
+    ctx.rect(lx, ly, lw, lh);
+    ctx.clip();
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(lx, ly, lw, lh);
     ctx.globalCompositeOperation = 'destination-out';
     for (const a of annotations || []) {
       if (!a || (a.type !== 'rect' && a.type !== 'ellipse')) continue;
@@ -4930,7 +5038,10 @@
         rootEl.style.height = '100%';
         layoutArea.appendChild(rootEl);
 
-        if (pageHasHighlight(page)) layoutArea.appendChild(buildHighlightVeil(page));
+        if (pageHasHighlight(page)) {
+          const hv = buildHighlightVeil(page);
+          if (hv) layoutArea.appendChild(hv);
+        }
 
         const layer = document.createElement('div');
         layer.className = 'ann-layer';
@@ -4946,7 +5057,10 @@
         rootEl.style.height = '100%';
         stageInner.appendChild(rootEl);
 
-        if (pageHasHighlight(page)) stageInner.appendChild(buildHighlightVeil(page));
+        if (pageHasHighlight(page)) {
+          const hv = buildHighlightVeil(page);
+          if (hv) stageInner.appendChild(hv);
+        }
 
         const layer = document.createElement('div');
         layer.className = 'ann-layer';
@@ -4960,13 +5074,15 @@
     return slide;
   }
 
-  /** v1.17/v1.26/v1.31/v1.50/v1.80: Maßstab logische Seite (PAGE_REF_W×PAGE_REF_H) → Bühne.
-   *  stage-ipad-fill: Contain (min width/height) im Viewport – volle Seite sichtbar
-   *    (Titelstreifen + Inhalt), unten bündig, horizontal zentriert; kein Cover-Schnitt.
-   *  Runtime-Scale: bestehende .beak bleiben im logischen 1156×803-Raum; Öffnen/Resize
-   *    greifen automatisch (kein manuelles Neu-Anlegen).
-   *  stage-ipad-window / Desktop: width-only (volle Seite, Letterbox L/R wie 1.31). */
+  /** v1.17/v1.26/v1.31/v1.50/v1.81: Maßstab logische Seite (PAGE_REF_W×PAGE_REF_H) → Bühne.
+   *  stage-ipad-fill: Width+Height-Fill (nicht-uniform) – volle Breite/Höhe, kein
+   *    Letterbox links/rechts, pinker Titel + Seite sichtbar (kein Crop wie Cover).
+   *    Logischer Raum bleibt 1156×803; --page-scale-x/y mappen auf die Bühne.
+   *  Runtime-Scale: bestehende .beak auto-adaptieren (Öffnen/Resize).
+   *  stage-ipad-window / Desktop / Portrait-Stapel: width-only (Letterbox ok). */
   let pageScaleValue = 0;
+  let pageScaleXValue = 0;
+  let pageScaleYValue = 0;
   function updatePageScale() {
     if (!el.pageTrack) return;
     const stage = el.pageTrack.querySelector('.stage');
@@ -4975,24 +5091,45 @@
     const w = rect.width;
     const h = rect.height;
     if (!w) return;
-    let raw;
-    if (document.documentElement.classList.contains('stage-ipad-fill')) {
+    const fill = document.documentElement.classList.contains('stage-ipad-fill')
+      && !document.documentElement.classList.contains('orient-portrait');
+    let sx;
+    let sy;
+    if (fill) {
       if (!h) return;
-      /* v1.80: Contain – volle Seite (magenta Titel + Tabelle); Cover schnitt Titel ab */
-      raw = Math.min(w / PAGE_REF_W, h / PAGE_REF_H);
+      /* v1.81: Fill = volle Breite und Höhe (Stretch), kein seitliches Letterbox */
+      sx = w / PAGE_REF_W;
+      sy = h / PAGE_REF_H;
     } else {
-      raw = w / PAGE_REF_W;
+      sx = w / PAGE_REF_W;
+      sy = sx;
     }
-    const k = Math.round(raw * 100000) / 100000;
-    if (k === pageScaleValue) return;
+    const kx = Math.round(sx * 100000) / 100000;
+    const ky = Math.round(sy * 100000) / 100000;
+    const k = kx; /* UI/Handles: Breitenmaßstab */
+    if (kx === pageScaleXValue && ky === pageScaleYValue && k === pageScaleValue) return;
     pageScaleValue = k;
+    pageScaleXValue = kx;
+    pageScaleYValue = ky;
     el.pageTrack.style.setProperty('--page-scale', String(k));
+    el.pageTrack.style.setProperty('--page-scale-x', String(kx));
+    el.pageTrack.style.setProperty('--page-scale-y', String(ky));
     document.documentElement.style.setProperty('--page-scale-ui', String(k));
+  }
+
+  function pruneHighlightLeafIds() {
+    try {
+      for (const page of state.doc.pages || []) {
+        if (!page || page.kind !== 'layout' || !page.highlightLeafId) continue;
+        if (!findLeaf(page.root, page.highlightLeafId)) page.highlightLeafId = null;
+      }
+    } catch (_) {}
   }
 
   function renderAll() {
     const keepStream = state.stream;
     const keepLeaf = state.liveLeafId;
+    pruneHighlightLeafIds();
     el.pageTrack.innerHTML = '';
     state.doc.pages.forEach((page, i) => {
       el.pageTrack.appendChild(renderPageSlide(page, i));
@@ -5064,7 +5201,7 @@
       host.querySelectorAll(':scope > .highlight-veil').forEach((n) => n.remove());
       if (pageHasHighlight(page)) {
         const veil = buildHighlightVeil(page);
-        host.insertBefore(veil, layer);
+        if (veil) host.insertBefore(veil, layer);
       }
     } catch (_) {}
   }
@@ -7033,6 +7170,8 @@
       }
       if (!!pp.highlight !== !!np.highlight) {
         actions.push({ pageIndex: ni, action: np.highlight ? 'Highlight eingeschaltet' : 'Highlight ausgeschaltet' });
+      } else if (pp.highlight && (pp.highlightLeafId || null) !== (np.highlightLeafId || null)) {
+        actions.push({ pageIndex: ni, action: 'Highlight-Fotofeld geändert' });
       }
       const prevPhotos = collectLeafPhotos(pp.root);
       const nextPhotos = collectLeafPhotos(np.root);
@@ -7190,6 +7329,9 @@
       annotations: (p.annotations || []).map((a) => serializeAnnotation(a, opts)),
     };
     if (p.highlight) out.highlight = true; /* v1.67 */
+    if (p.highlight && typeof p.highlightLeafId === 'string' && p.highlightLeafId) {
+      out.highlightLeafId = p.highlightLeafId; /* v1.81 */
+    }
     const embed = normalizeFehlerEmbed(p.fehlerEmbed);
     if (embed) out.fehlerEmbed = { rowIds: embed.rowIds.slice() };
     return out;
@@ -7272,6 +7414,9 @@
           ? p.annotations.map((a) => normalizeAnnotation(a)).filter(Boolean)
           : [],
         highlight: !!p.highlight,
+        highlightLeafId: (p.highlight && typeof p.highlightLeafId === 'string' && p.highlightLeafId)
+          ? p.highlightLeafId
+          : null,
       };
       const embed = normalizeFehlerEmbed(p.fehlerEmbed);
       if (embed) layoutPage.fehlerEmbed = embed;
@@ -8914,7 +9059,7 @@
       await drawCellTree(ctx, page.root, ix, iy, iw, ih, frame);
     }
     if (page && page.highlight) {
-      drawHighlightVeilCanvas(ctx, page.annotations || [], W, layoutH);
+      drawHighlightVeilCanvas(ctx, page, page.annotations || [], W, layoutH, { x: ix, y: iy, w: iw, h: ih });
     }
     drawAnnotations(ctx, page.annotations || [], W, layoutH);
 
@@ -10186,6 +10331,12 @@
     }
   });
   el.pageTrack.addEventListener('transitionend', onTrackTransitionEnd);
+  /* v1.81: Highlight-Fotofeld per Tap (auch wenn kein Seiten-Drag startete) */
+  el.pageTrack.addEventListener('click', (e) => {
+    if (!state.editMode) return;
+    if (trackDragDidPageSwipe) return;
+    try { trySetHighlightLeafFromTarget(e.target); } catch (_) {}
+  });
 
   if (el.libraryFile) el.libraryFile.addEventListener('change', onFileChosen);
   el.cameraFile.addEventListener('change', onFileChosen);
@@ -11292,16 +11443,16 @@
     const m = mode === 'window' ? 'window' : 'fill';
     try { localStorage.setItem(DISPLAY_MODE_KEY, m); } catch (_) {}
     updateDisplayModeUI();
-    pageScaleValue = 0; /* force updatePageScale after class swap */
+    pageScaleValue = 0; pageScaleXValue = 0; pageScaleYValue = 0; /* force updatePageScale */
     try { fixStandaloneViewport(); } catch (_) {}
   }
 
-  /* v1.22/v1.26/v1.31/v1.50/v1.80: iPad-Standalone → stage-ipad-fill (Contain) oder stage-ipad-window.
+  /* v1.22/v1.26/v1.31/v1.50/v1.81: iPad-Standalone → stage-ipad-fill (Width+Height-Fill) oder stage-ipad-window.
      Desktop/PC → keine iPad-Klassen: Seite einpassen. Preference trotzdem speicherbar.
      v1.26: visualViewport bevorzugen; --app-h nie größer als sichtbar.
      v1.36: Während Tastatur-Eingabe Layout-Größe einfrieren (kein Shrink aus vv.height) –
              gilt für Fill und Fenster; Sichtbarkeit über updateKbAvoid (translateY).
-     v1.80: Fill wieder Contain (min) – pinker Titel + volle Seite; schlanker --stage-top-inset. */
+     v1.81: Fill ohne seitliches Letterbox (sx/sy); Fenster darf Letterbox; schlanker Inset. */
   let lastGoodAppH = '';
   let lastGoodAppW = '';
   function fixStandaloneViewport() {
@@ -11378,10 +11529,44 @@
   updateDisplayModeUI();
   fixStandaloneViewport();
   window.addEventListener('resize', fixStandaloneViewport);
-  window.addEventListener('orientationchange', () => setTimeout(fixStandaloneViewport, 300));
+  /* v1.81: Hochformat – Seiten stapeln + Editor aus; Querformat wie bisher */
+  function isPortraitOrientation() {
+    try {
+      if (window.matchMedia && window.matchMedia('(orientation: portrait)').matches) return true;
+      if (window.matchMedia && window.matchMedia('(orientation: landscape)').matches) return false;
+    } catch (_) {}
+    return (window.innerHeight || 0) > (window.innerWidth || 0);
+  }
+  function updateOrientationLayout() {
+    const root = document.documentElement;
+    const port = isPortraitOrientation();
+    const was = root.classList.contains('orient-portrait');
+    root.classList.toggle('orient-portrait', port);
+    if (el.app) el.app.classList.toggle('orient-portrait', port);
+    if (port && state.editMode) {
+      try { setEditMode(false); } catch (_) {}
+    }
+    if (port) {
+      try {
+        clearTrackTransition();
+        if (el.pageTrack) el.pageTrack.style.transform = '';
+        trackOffsetPx = 0;
+      } catch (_) {}
+    } else if (was || !port) {
+      try { applyTrackTransform(baseOffsetForIndex(state.doc.pageIndex), false); } catch (_) {}
+    }
+    pageScaleValue = 0; pageScaleXValue = 0; pageScaleYValue = 0;
+    try { updatePageScale(); } catch (_) {}
+    try { scheduleViewerChromeCompact(); } catch (_) {}
+  }
+  updateOrientationLayout();
+  window.addEventListener('orientationchange', () => {
+    setTimeout(() => { try { fixStandaloneViewport(); } catch (_) {} try { updateOrientationLayout(); } catch (_) {} }, 300);
+  });
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', fixStandaloneViewport);
   }
+  window.addEventListener('resize', () => { try { updateOrientationLayout(); } catch (_) {} });
   /* v1.60: also react to display-mode / standalone changes for compact chrome */
   try {
     const dmMq = window.matchMedia('(display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui)');
