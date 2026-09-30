@@ -1,0 +1,64 @@
+{
+  "name": "Anweisungen",
+  "short_name": "Anweisungen",
+  "description": "Mehrseitige Foto-Anweisungen und Arbeitspläne (BEAK)",
+  "start_url": "./",
+  "scope": "./",
+  "id": "./",
+  "display": "fullscreen",
+  "display_override": [
+    "window-controls-overlay",
+    "fullscreen",
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "landscape",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "lang": "de",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "file_handlers": [
+    {
+      "action": "./",
+      "name": "Anweisungen-Projekt",
+      "accept": {
+        "application/zip": [
+          ".beak",
+          ".zip",
+          ".plan",
+          ".beakplan"
+        ],
+        "application/octet-stream": [
+          ".beak"
+        ]
+      },
+      "launch_type": "single-client"
+    }
+  ]
+}

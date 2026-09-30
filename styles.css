@@ -1,0 +1,3785 @@
+:root {
+  --bg: #000000;
+  --page-bg: #000000;
+  --stage-bg: #000000;
+  --panel: #1a1f27;
+  --panel2: #222833;
+  --border: #2e3644;
+  --text: #e8ecf1;
+  --muted: #9aa3b2;
+  --accent: #dd007a;
+  --accent2: #3b82f6;
+  --frame-border: #000000;
+  --ann-red: rgba(255, 0, 0, 0.7);
+  --touch: 44px;
+  --radius: 10px;
+  --frame-border-w: 2mm;
+  --ann-border-w: 1.5mm;
+  --page-snap-ms: 480ms;
+  /* v1.28: Floating-Topbar wieder Overlay – Index/Fehler-Titel unter den Buttons padden.
+     Mit opaker Statusleiste (black) ist safe-area-top oft 0 → mind. 8px + Buttonzeile (~36px). */
+  /* v1.50/v1.52/v1.67: oberer Canvas-Inset – opake Statusleiste (black) liefert oft safe-area-top=0;
+     mind. 24px, damit Inhalt auf iPad Air unter der schwarzen Leiste sitzt, nicht darunter. */
+  --stage-top-inset: max(24px, env(safe-area-inset-top, 0px));
+  --chrome-clearance: calc(max(8px, var(--stage-top-inset)) + 36px);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  height: 100%;
+  height: 100dvh;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+}
+button { -webkit-tap-highlight-color: transparent; }
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
+  width: 100%;
+  /* v1.9: KEINE Safe-Area-Paddings am App-Container – die Seite nutzt die volle
+     Bildschirmfläche (unter Statusleiste / Home-Indikator). Insets nur an Chrome
+     (Topbar, Menü, Toasts). Vorher erzeugte padding-bottom den schwarzen Rand unten. */
+  position: relative;
+  /* no sticky translate — layout must recover after iOS keyboard */
+  transform: none;
+}
+
+/* ---- Topbar: v1.28 wieder schwebend (Overlay) – opake System-Statusleiste (black)
+   hält Icons scharf; kein solider Chrome-Streifen mehr nötig. ---- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  /* v1.26/v1.28/v1.67: opaque black status bar – Topbar unter Leiste (Inset, mind. 24px). */
+  padding-top: max(8px, var(--stage-top-inset));
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
+  background: transparent; /* Buttons schweben über der Seite */
+  border-bottom: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 50;
+  pointer-events: none; /* Gesten gehen durch leere Chrome-Fläche auf die Seite */
+  /* kein backdrop-filter / filter / text-shadow / translate (iOS-Schärfe) */
+  isolation: isolate;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  filter: none;
+  text-shadow: none;
+  transform: none;
+  -webkit-transform: none;
+}
+
+.topbar .btn,
+.topbar #fertigBtn,
+.topbar .brand,
+.topbar .top-center,
+.topbar .edit-tools,
+.topbar .status-flash,
+.topbar .title {
+  pointer-events: auto;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.title {
+  font-weight: 700;
+  font-size: 1.05rem;
+  white-space: nowrap;
+  /* v1.23: kein text-shadow – wirkte weich/unscharf unter Statusleiste */
+  text-shadow: none;
+  position: relative;
+  z-index: 1;
+}
+/* v1.34: Seitenanzeige unten mittig über der Stage (nicht mehr in der Topbar) */
+.page-indicator {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  z-index: 45;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #f2f5f8;
+  white-space: nowrap;
+  margin: 0;
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.42);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+  flex: 0 0 auto;
+  opacity: 1;
+  transition: opacity 180ms ease-out;
+  /* v1.36: nicht mit Page-Scale mitwachsen; bleibt klein unten mittig */
+  zoom: 1;
+  scale: 1;
+  max-width: none;
+  width: auto;
+  height: auto;
+  line-height: 1.25;
+}
+
+.top-left, .top-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+}
+.top-actions { justify-content: flex-end; }
+
+.top-center {
+  /* v1.28/v1.24: absolut zentriert ohne translate(-50%) – left/right 0 + margin auto (iOS-scharf) */
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 8px;
+  margin: 0 auto;
+  width: max-content;
+  transform: none;
+  -webkit-transform: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+.edit-tools {
+  display: none;
+  gap: 4px;
+  align-items: center;
+  margin-right: 6px;
+}
+.app.edit-mode .edit-tools { display: flex; }
+
+/* Icon-only toolbar buttons (Variante A Outline) */
+.btn.icon-btn {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #f0f0f0;
+}
+.btn.icon-btn .tool-icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+.btn.icon-btn.active {
+  color: #fff;
+}
+#toolRect.icon-btn.active,
+#toolCircle.icon-btn.active,
+#toolText.icon-btn.active,
+#toolTextSm.icon-btn.active {
+  color: #fff;
+}
+
+/* Dual / segmented icon pairs — each segment is a real .btn (visible accent border) */
+.tool-dual {
+  display: inline-flex;
+  align-items: stretch;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  overflow: visible; /* do not clip segment borders on hover/active */
+  height: 34px;
+  min-height: 34px;
+  gap: 0;
+}
+.tool-dual .tool-dual-btn.btn.icon-btn {
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--panel2);
+  width: 34px;
+  min-width: 34px;
+  max-width: 34px;
+  height: 100%;
+  min-height: 100%;
+  padding: 0 !important;
+  margin: 0;
+  line-height: 0;
+  box-shadow: none;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 34px;
+  position: relative;
+}
+.tool-dual .tool-dual-btn.btn.icon-btn:first-child {
+  border-radius: 8px 0 0 8px;
+}
+.tool-dual .tool-dual-btn.btn.icon-btn:last-child {
+  border-radius: 0 8px 8px 0;
+}
+.tool-dual .tool-dual-btn .tool-icon {
+  width: 20px;
+  height: 20px;
+  margin: 0 auto;
+  display: block;
+  flex: 0 0 auto;
+}
+.tool-dual .tool-dual-btn + .tool-dual-btn {
+  /* Overlap shared edge so hover/active accent border is fully visible */
+  margin-left: -1px;
+}
+/* Specificity must beat .tool-dual .tool-dual-btn.btn.icon-btn border shorthand */
+.tool-dual .tool-dual-btn.btn.icon-btn:hover,
+.tool-dual .tool-dual-btn.btn.icon-btn:focus-visible {
+  background: #2a3344;
+  border-color: var(--accent2);
+  outline: none;
+  z-index: 2;
+}
+.tool-dual .tool-dual-btn.btn.icon-btn.active {
+  background: #1e3a5f;
+  color: #fff;
+  border-color: var(--accent2);
+  z-index: 2;
+}
+
+.btn {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  min-height: 36px;
+}
+.btn.sm {
+  min-height: 32px;
+  min-width: 32px;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+}
+.btn.touch {
+  min-height: var(--touch);
+  min-width: var(--touch);
+  padding: 10px 14px;
+}
+.btn:hover, .btn:focus-visible {
+  border-color: var(--accent2);
+  outline: none;
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: #a8005c;
+  color: #fff;
+  font-weight: 700;
+}
+.btn.active {
+  background: #1e3a5f;
+  border-color: var(--accent2);
+}
+
+/* + Button annotation tool — table-text blue; edit+layout only (next to + Fehler) */
+#toolButton {
+  display: none;
+  background: #4a9eff;
+  border-color: #2f7fd4;
+  color: #0a1628;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.app.edit-mode #toolButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.app.edit-mode.index-page-active #toolButton,
+.app.edit-mode.fehler-page-active #toolButton {
+  display: none !important;
+}
+#toolButton:hover,
+#toolButton:focus-visible {
+  border-color: #1e6bb8;
+  outline: none;
+}
+#toolButton.active {
+  background: #2f7fd4;
+  border-color: #1e6bb8;
+  color: #fff;
+}
+
+/* + Info annotation tool — same blue as + Button */
+#toolInfo {
+  display: none;
+  background: #4a9eff;
+  border-color: #2f7fd4;
+  color: #0a1628;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.app.edit-mode #toolInfo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.app.edit-mode.index-page-active #toolInfo,
+.app.edit-mode.fehler-page-active #toolInfo {
+  display: none !important;
+}
+#toolInfo:hover,
+#toolInfo:focus-visible {
+  border-color: #1e6bb8;
+  outline: none;
+}
+#toolInfo.active {
+  background: #2f7fd4;
+  border-color: #1e6bb8;
+  color: #fff;
+}
+
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.menu-btn { font-size: 1.05rem; }
+/* v1.8: Hinweis-Toast UNTER der Toolbar – absolut positioniert, verschiebt keine Buttons.
+   top wird per JS an die Unterkante der Toolbar-Buttons gesetzt. */
+.status-flash {
+  position: fixed;
+  left: 50%;
+  top: 56px;
+  transform: translate(-50%, -4px);
+  z-index: 260;
+  max-width: min(760px, calc(100vw - 32px));
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: rgba(12, 16, 24, 0.92);
+  border: 1px solid rgba(34, 197, 94, 0.55);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ok, #22c55e);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0s linear 0.2s;
+}
+.status-flash:empty { display: none; }
+.status-flash.show {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0s;
+}
+.status-flash.is-error {
+  color: #fecaca;
+  border-color: rgba(239, 68, 68, 0.7);
+  background: rgba(60, 10, 14, 0.94);
+  white-space: normal;
+  border-radius: 12px;
+}
+
+/* ---- Menu drawer ---- */
+.menu-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: transparent;
+}
+.menu-backdrop.open { display: block; }
+
+.drawer {
+  display: none;
+  position: absolute;
+  z-index: 45;
+  top: calc(max(8px, calc(env(safe-area-inset-top, 0px) + 4px)) + 40px);
+  left: 8px;
+  width: min(320px, 92vw);
+  max-height: calc(100dvh - 80px);
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.45);
+}
+.drawer.open { display: block; }
+.drawer-section {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 12px 0 6px;
+  font-weight: 700;
+}
+.drawer-section:first-child {
+  margin-top: 0;
+}
+.drawer .btn.block {
+  width: 100%;
+  text-align: left;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.drawer .check {
+  color: var(--accent2);
+  font-weight: 700;
+  min-width: 1.2em;
+}
+
+/* ---- Page viewport / Photos-style track ---- */
+.page {
+  flex: 1;
+  min-height: 0;
+  background: var(--page-bg);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.page-viewport {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+  background: var(--page-bg);
+  touch-action: none; /* v1.19: horizontales Wischen an App; kein Browser-Pan */
+  /* v1.19/v1.20: kein padding-bottom – Letterboxing. Stage an Breite, Unterkante bündig. */
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+}
+/* v1.50/v1.52/v1.67: iPad Fill+Fenster – Viewport oben einrücken (Statusleiste), Cover/Seite darunter */
+html.stage-ipad-fill .page-viewport,
+html.stage-ipad-window .page-viewport {
+  padding-top: var(--stage-top-inset);
+}
+
+.page-track {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  width: 100%;
+  will-change: transform;
+  transform: translateX(0);
+}
+
+.page-track.animating {
+  transition: transform var(--page-snap-ms) cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.page-slide {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  /* v1.22 Desktop: Seite einpassen (contain) – Höhe füllen, Breite aus Aspect, zentriert */
+  align-items: stretch;
+  overflow: hidden;
+  position: relative;
+  background: #000000; /* v1.70/v1.71: Letterbox/Leerfläche unter/seitlich der Seite schwarz */
+  /* Keep adjacent slides painted (annotations over photos) during swipe */
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* v1.22 Desktop-Default: Höhe 100%, Breite aus Aspect → ggf. schmale Ränder L/R, kein starker Schnitt oben */
+.stage {
+  height: 100%;
+  width: auto;
+  aspect-ratio: 1180 / 820;
+  max-height: 100%;
+  max-width: 100%;
+  background: var(--stage-bg);
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+/* v1.52 iPad Fill: Stage füllt den inset-Viewport (unter Statusleiste). Logische Seite
+   per Cover (max) unten bündig – edge-to-edge, Overflow oben. Deutlich füllender als Fenster.
+   Kein Innen-Spacer in Index/Fehler (wie 1.49/1.50). */
+html.stage-ipad-fill .page-slide {
+  justify-content: center;
+  align-items: stretch;
+}
+html.stage-ipad-fill .stage {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: auto;
+  background: #000000; /* ggf. Rand schwarz (Theme), nicht Stage-Grau */
+}
+/* Cover: bottom-left origin; Overflow oben (und ggf. rechts) */
+html.stage-ipad-fill .stage-inner {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  top: auto;
+  right: auto;
+  margin-left: 0;
+  margin-right: 0;
+  transform: scale(var(--page-scale, 1));
+  transform-origin: 0 100%;
+}
+
+/* v1.31 iPad Fenster: Höhe füllen, Breite aus Aspect → Letterbox L/R; volle Seite sichtbar (kein Schnitt oben) */
+html.stage-ipad-window .page-slide {
+  justify-content: center;
+  align-items: stretch;
+}
+html.stage-ipad-window .stage {
+  height: 100%;
+  width: auto;
+  aspect-ratio: 1180 / 820;
+  max-height: 100%;
+  max-width: 100%;
+}
+html.stage-ipad-window .stage-inner {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: auto;
+  transform-origin: 0 0;
+}
+/* v1.17: feste logische Seite 1156 × 803,32 px (Referenz: Bernds Mac-Screenshot), per Maßstab
+   auf die Bühne gebracht → alle Inhalte (Schrift, Linien, Pfeile, Labels, Griffe) geräteunabhängig
+   proportional. --page-scale setzt app.js (Bühnenbreite / 1156); Export/Übersicht rendern mit 1. */
+.stage-inner {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1156px;
+  height: calc(1156px * 820 / 1180);
+  transform: scale(var(--page-scale, 1));
+  transform-origin: 0 0;
+}
+
+/* ---- Cell tree ---- */
+.cell {
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+.cell-root {
+  width: 100%;
+  height: 100%;
+  /* outer black frame hidden (display-flush); internal splits keep gap lines */
+  border: none;
+  box-sizing: border-box;
+}
+.cell-split {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  background: var(--frame-border);
+  gap: var(--frame-border-w);
+}
+.cell-split.dir-v { flex-direction: row; }
+.cell-split.dir-h { flex-direction: column; }
+
+.cell-leaf {
+  width: 100%;
+  height: 100%;
+  background: #2a2a2a;
+  overflow: hidden;
+}
+
+.cell-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: none;
+  pointer-events: none;
+}
+.cell-photo.has-photo { display: block; }
+.cell-leaf.live-camera .cell-photo { display: none !important; }
+
+/* In-cell live camera preview */
+.cell-live-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: none;
+  background: #111;
+  pointer-events: none;
+  z-index: 2;
+}
+.cell-leaf.live-camera .cell-live-video { display: block; }
+
+.cell-kamera-wrap {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.app.edit-mode .cell-kamera-wrap { display: flex; }
+
+/* Combined Kamera | Fotos segmented control */
+.cell-cam-seg {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 10px;
+  /* v1.21: halbtransparent, Foto dahinter erkennbar */
+  background: rgba(34, 40, 51, 0.42);
+  /* v1.24: kein blur(0px) – aktiviert trotzdem den Blur-Pfad auf iOS */
+  overflow: hidden;
+  min-height: var(--touch);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+}
+.cell-cam-seg-btn {
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  min-height: var(--touch);
+  min-width: 44px;
+  width: 48px;
+  padding: 8px;
+  font-size: 1.02rem;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cell-cam-seg-btn .tool-icon {
+  width: 22px;
+  height: 22px;
+  display: block;
+  pointer-events: none;
+}
+.cell-cam-seg-btn + .cell-cam-seg-btn {
+  border-left: 1px solid var(--border);
+}
+.cell-cam-seg-btn:hover,
+.cell-cam-seg-btn:focus-visible {
+  background: rgba(42, 51, 68, 0.55);
+  outline: none;
+}
+.cell-cam-seg-btn.cell-kamera.live {
+  min-width: 96px;
+  width: auto;
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  background: rgba(59, 130, 246, 0.82);
+  color: #fff;
+}
+.cell-cam-seg.live .cell-fotos {
+  color: var(--text);
+}
+
+.cell-cam-cancel {
+  font-size: 0.78rem;
+  min-height: 28px;
+  padding: 4px 8px;
+}
+
+/* ---- Split handle ---- */
+.split-handle {
+  position: absolute;
+  z-index: 10;
+  cursor: default;
+  touch-action: none;
+}
+.split-handle.dir-v {
+  top: 0;
+  bottom: 0;
+  width: 16px;
+  margin-left: -8px;
+}
+.split-handle.dir-h {
+  left: 0;
+  right: 0;
+  height: 16px;
+  margin-top: -8px;
+}
+.app.edit-mode .split-handle.dir-v { cursor: col-resize; }
+.app.edit-mode .split-handle.dir-h { cursor: row-resize; }
+.app.edit-mode .split-handle.dir-v::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 10%;
+  bottom: 10%;
+  width: 3px;
+  margin-left: -1.5px;
+  background: var(--accent2);
+  border-radius: 2px;
+  opacity: 0.85;
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.5);
+}
+.app.edit-mode .split-handle.dir-h::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 10%;
+  right: 10%;
+  height: 3px;
+  margin-top: -1.5px;
+  background: var(--accent2);
+  border-radius: 2px;
+  opacity: 0.85;
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.5);
+}
+
+.split-delete {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1;
+  align-items: center;
+  justify-content: center;
+  z-index: 13;
+  background: #b91c1c;
+  border-color: #991b1b;
+  color: #fff;
+  font-weight: 700;
+}
+.app.edit-mode .split-handle.selected .split-delete { display: inline-flex; }
+
+/* ---- Annotations layer ---- */
+.ann-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 20; /* above cells/photos/camera chrome so overlays stay visible mid-swipe */
+  pointer-events: none;
+  /* Own compositor layer — avoid deferred paint behind heavy photo layers */
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  isolation: isolate;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.ann {
+  position: absolute;
+  pointer-events: auto;
+  cursor: default;
+}
+.app.edit-mode .ann { cursor: move; }
+.app.edit-mode .ann.selected { z-index: 9; }
+
+/* ---- v1.67: Highlight-Schleier (Foto nur in Rect/Kreis sichtbar) ---- */
+.highlight-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 15; /* unter .ann-layer (20), über Zellen/Fotos */
+  pointer-events: none;
+  overflow: hidden;
+}
+.highlight-veil svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---- v1.67: Kopieren/Einfügen-Callout (iPad) ---- */
+.copy-paste-callout {
+  position: fixed;
+  z-index: 55;
+  display: flex;
+  gap: 0;
+  pointer-events: auto;
+  filter: none;
+  -webkit-filter: none;
+}
+.copy-paste-callout[hidden] { display: none !important; }
+.copy-paste-callout .copy-paste-btn {
+  min-height: 36px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: #1a1f27;
+  border: 1px solid #2f7fd4;
+  color: #e8ecf1;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  font-weight: 600;
+}
+.copy-paste-callout .copy-paste-btn:active,
+.copy-paste-callout .copy-paste-btn:focus-visible {
+  background: #2a3344;
+  border-color: #93c5fd;
+}
+.app.edit-mode #toolHighlight.active {
+  border-color: #f5d078;
+  background: #3a2a08;
+  color: #f5d078;
+}
+
+
+.ann-rect, .ann-ellipse {
+  border: var(--ann-border-w) solid var(--ann-red);
+  background: transparent;
+  background-color: transparent;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  /* outline only — 1.5mm at 70% opacity via --ann-* vars */
+}
+.ann-ellipse {
+  border-radius: 50%;
+}
+
+
+/* Jump-button: content-sized width; height matches app .btn (36px) */
+.ann:has(.ann-button) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: max-content;
+  max-width: 90%;
+  height: auto;
+  overflow: visible;
+}
+.ann:has(.ann-button).has-fixed-w {
+  width: auto; /* width set in % via JS */
+  max-width: 90%;
+}
+.ann-button {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  width: max-content;
+  max-width: 100%;
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  background: #4a9eff;
+  border: 2px solid #2f7fd4;
+  border-radius: 8px;
+  color: #ffffff;
+  padding: 8px 12px; /* match .btn */
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+.ann.has-fixed-w .ann-button {
+  width: 100%;
+}
+.app.edit-mode .ann-button {
+  cursor: move;
+}
+.ann-button-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  max-width: 100%;
+  min-height: 0;
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #ffffff;
+  outline: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  white-space: pre;
+  word-break: normal;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: inherit;
+}
+.ann.has-fixed-w .ann-button-label {
+  width: 100%;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.app.edit-mode .ann-button-label {
+  cursor: text;
+}
+.app.edit-mode .ann.selected .ann-button-label:focus,
+.app.edit-mode .ann.selected .ann-button-label {
+  border-color: rgba(255, 255, 255, 0.55);
+}
+/* Target page sits outside/below the blue button (not inside it) */
+.ann-button-target {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 4px;
+  flex: 0 0 auto;
+  min-width: 5.5ch;
+  width: 56px;
+  max-width: none;
+  height: 22px;
+  min-height: 22px;
+  padding: 0 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-align: center;
+  color: #0a1628;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #2f7fd4;
+  border-radius: 4px;
+  box-sizing: border-box;
+  z-index: 11;
+}
+.app.edit-mode .ann.selected .ann-button-target {
+  display: block;
+}
+/* v1.38: Kompaktes „Öffnen“ unter dem Info-Button */
+.ann-button-target.ann-info-open {
+  width: auto;
+  min-width: 4.8em;
+  max-width: none;
+  padding: 0 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  color: #0a1628;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #2f7fd4;
+}
+.ann.flash-invalid .ann-button {
+  animation: ann-btn-flash 0.4s ease;
+}
+@keyframes ann-btn-flash {
+  0%, 100% { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); filter: none; }
+  50% { box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.85); filter: brightness(1.15); }
+}
+
+
+/* Text annotation: hug content; single-line until newline or manual E/W widen */
+.ann:has(.ann-text) {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: max-content;
+  max-width: 90%;
+  height: auto;
+}
+.ann:has(.ann-text).has-fixed-w {
+  width: auto; /* width set in % via JS */
+  max-width: 95%;
+}
+.ann-text {
+  background: rgba(0, 0, 0, 0.8);
+  color: #ffffff;
+  padding: 6px 10px;
+  /* "Text" (~2.6em) + horizontal padding 10+10 — never narrower than placeholder */
+  min-width: calc(2.6em + 20px);
+  min-height: 28px;
+  width: max-content;
+  max-width: none;
+  box-sizing: border-box;
+  font-size: 1rem;
+  line-height: 1.3;
+  /* v1.68: always pre-wrap so Enter/newline does not flip white-space (layout jump) */
+  white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: break-word;
+  outline: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: text;
+  display: inline-block;
+  text-align: center;
+  vertical-align: top;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.ann-text.is-multiline {
+  /* v1.68: wrapping limited by parent .ann max-width:90% — do NOT also
+     set max-width on the text (circular shrink made "Linie A" wrap mid-word). */
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+/* v1.68: kein Hintergrund → schwarze Schrift */
+.ann-text.no-fill {
+  background: transparent !important;
+  color: #000000 !important;
+}
+/* Manual width resize: box uses persisted % width; text stays centered */
+.ann.has-fixed-w {
+  max-width: 95%;
+}
+.ann.has-fixed-w .ann-text {
+  width: 100%;
+  max-width: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ann-text.ann-text-sm {
+  padding: 4px 7px;
+  /* "Text" (~2.6em) + horizontal padding 7+7 */
+  min-width: calc(2.6em + 14px);
+  min-height: 20px;
+  font-size: 0.7rem;
+  line-height: 1.25;
+}
+/* v1.10: neues „Text groß“ = 1.4 × altes groß (altes groß 1rem = neues klein) */
+.ann-text.ann-text-xl {
+  padding: 8px 14px;
+  min-width: calc(2.6em + 28px);
+  min-height: 39px;
+  font-size: 1.4rem;
+  line-height: 1.3;
+}
+/* Drag vs edit: no text-select until focused */
+.app.edit-mode .ann-text:not(:focus) {
+  cursor: move;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.app.edit-mode .ann-text:focus,
+.app.edit-mode .ann.selected .ann-text:focus {
+  border-color: var(--accent2);
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* BEAK-Nr. annotation — same size as Text groß; white @ 80%; box hugs text */
+.ann-beak-wrap {
+  display: inline-flex;
+  align-items: stretch;
+  width: max-content;
+  max-width: 100%;
+  gap: 0;
+}
+.ann-beak-text {
+  background: rgba(255, 255, 255, 0.8);
+  color: #000000;
+  padding: 6px 6px;
+  min-width: 0;
+  min-height: 28px;
+  width: max-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  font-size: 1rem; /* Text groß / toolText */
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+  font-family: inherit;
+  white-space: nowrap;
+  outline: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: text;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  -webkit-user-select: text;
+  user-select: text;
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  flex: 0 0 auto;
+}
+/* Author display:inline-flex would otherwise override the UA [hidden] rule — only ONE visible */
+.ann-beak-text[hidden],
+.ann-beak-wrap:not(.is-editing) .ann-beak-input,
+.ann-beak-wrap.is-editing .ann-beak-display {
+  display: none !important;
+}
+/* Span display: naturally hugs text (no input default ~20ch width) */
+span.ann-beak-display {
+  width: max-content;
+}
+/* Editing input: width set in px via JS measure; never stretch to parent */
+input.ann-beak-input {
+  width: auto;
+  field-sizing: content;
+  flex: 0 0 auto;
+}
+.app.edit-mode .ann-beak-display {
+  cursor: move;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.app.edit-mode .ann-beak-input:focus,
+.app.edit-mode .ann.selected .ann-beak-input:focus {
+  border-color: var(--accent2);
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* Toolbar: BEAK-Nr. label button */
+.tool-beak-btn {
+  height: 34px;
+  min-height: 34px;
+  min-width: 0;
+  padding: 0 8px !important;
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  /* Match Kreis/Text editor tools: same panel fill, border, and full opacity. */
+  background: var(--panel2);
+  border-color: var(--border);
+  opacity: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+.tool-beak-btn.active {
+  background: #1e3a5f;
+  border-color: var(--accent2);
+  color: #fff;
+}
+
+/* BEAK Stückliste PDF lightbox (mirrored from Bestückungsplan) */
+.part-photo-lightbox {
+  z-index: 200;
+  cursor: zoom-out;
+  pointer-events: auto;
+  background: rgba(0, 0, 0, 0.82);
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+  display: flex;
+  position: fixed;
+  inset: 0;
+}
+/* display:flex above would otherwise override the UA [hidden] rule */
+.part-photo-lightbox[hidden] {
+  display: none !important;
+}
+.beak-pdf-lightbox {
+  cursor: zoom-out;
+}
+.beak-pdf-frame {
+  cursor: default;
+  background: #fff;
+  border-radius: 12px;
+  flex-direction: column;
+  width: min(1400px, calc(100vw - 32px));
+  max-width: 100%;
+  height: min(90vh, calc(100dvh - 32px));
+  display: flex;
+  overflow: hidden;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+.beak-pdf-frame iframe {
+  background: #fff;
+  border: 0;
+  flex: auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: block;
+}
+
+.handle {
+  display: none;
+  position: absolute;
+  /* v1.54: 44×44 CSS-px hitbox (iPad finger); visual knob stays modest via ::after */
+  width: 44px;
+  height: 44px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  z-index: 12;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+/* Visible resize knob (~16px) centered in the invisible hit area */
+.handle:not(.rot-handle)::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
+  margin-top: -8px;
+  box-sizing: border-box;
+  background: #fff;
+  border: 2px solid var(--accent2);
+  border-radius: 2px;
+  pointer-events: none;
+}
+.app.edit-mode .ann.selected .handle { display: block; }
+.handle.nw { left: -22px; top: -22px; cursor: nwse-resize; }
+.handle.ne { right: -22px; top: -22px; cursor: nesw-resize; }
+.handle.sw { left: -22px; bottom: -22px; cursor: nesw-resize; }
+.handle.se { right: -22px; bottom: -22px; cursor: nwse-resize; }
+/* Text width-only: edge handles (same 44×44 hitbox) */
+.handle.e {
+  right: -22px;
+  top: 50%;
+  margin-top: -22px;
+  cursor: ew-resize;
+}
+.handle.w {
+  left: -22px;
+  top: 50%;
+  margin-top: -22px;
+  cursor: ew-resize;
+}
+
+.ann-delete {
+  display: none;
+  position: absolute;
+  top: -28px;
+  right: -4px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1;
+  align-items: center;
+  justify-content: center;
+  z-index: 13;
+  background: #b91c1c;
+  border-color: #991b1b;
+  color: #fff;
+  font-weight: 700;
+}
+.app.edit-mode .ann.selected .ann-delete { display: inline-flex; }
+
+/* Annotation place-on-tap cursor */
+.app.ann-tool .stage {
+  cursor: crosshair;
+}
+
+/* v1.65: Safari/Mac Web App – programmatic .click() needs activatable input
+   (not display:none / pointer-events:none). Visually clipped. */
+.hidden-file {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 44px;
+  height: 44px;
+  opacity: 0.01;
+  overflow: hidden;
+  z-index: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  -webkit-clip-path: inset(50%);
+}
+
+/* Unterteilung cursor hint */
+.app.edit-mode.split-tool .cell-leaf {
+  cursor: crosshair;
+}
+
+/* ---- Photo transform ---- */
+.cell-photo {
+  transform-origin: center center;
+}
+.app.photo-move-mode .cell-photo.has-photo {
+  will-change: transform;
+}
+.app.photo-move-mode .cell-leaf.has-photo-data {
+  cursor: grab;
+  touch-action: none;
+}
+.app.photo-move-mode .cell-leaf.has-photo-data.photo-moving {
+  cursor: grabbing;
+}
+
+/* ---- Teleport tool ---- */
+.app.teleport-mode .cell-leaf {
+  cursor: copy;
+}
+.app.teleport-mode.teleport-carrying .cell-leaf:not(.teleport-source) {
+  opacity: 0.72;
+}
+.cell-leaf.teleport-source {
+  outline: 2px dashed #2ee6e6;
+  outline-offset: -3px;
+  box-shadow: inset 0 0 0 1px rgba(46, 230, 230, 0.35);
+  z-index: 2;
+  opacity: 1 !important;
+}
+
+
+/* ---- v1.51: Fotozwischenspeicher (editor-only annotation) ---- */
+.ann.ann-photo-clipboard-node {
+  z-index: 6;
+  overflow: visible;
+}
+/* v1.53: corner handles above camera chrome / photo (resize like rect) */
+.ann.ann-photo-clipboard-node > .handle {
+  z-index: 20;
+}
+.ann.ann-photo-clipboard-node > .ann-delete {
+  z-index: 21;
+}
+.ann-photo-clipboard {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 2.5px dashed var(--accent, #dd007a);
+  border-radius: 14px;
+  background: rgba(20, 20, 24, 0.35);
+  overflow: hidden;
+  container-type: size;
+}
+.ann-photo-clipboard .cell-photo {
+  border-radius: 11px;
+}
+.ann-photo-clipboard.live-camera .cell-photo { display: none !important; }
+.ann-photo-clipboard.live-camera .cell-live-video { display: block; }
+.ann-photo-clipboard .cell-kamera-wrap {
+  /* reuse leaf camera chrome; already edit-mode gated */
+}
+.app.teleport-mode .ann.ann-photo-clipboard-node {
+  cursor: copy;
+}
+.app.teleport-mode.teleport-carrying .ann.ann-photo-clipboard-node:not(.teleport-source) {
+  opacity: 0.72;
+}
+.ann.ann-photo-clipboard-node.teleport-source .ann-photo-clipboard {
+  outline: 2px dashed #2ee6e6;
+  outline-offset: -3px;
+  box-shadow: inset 0 0 0 1px rgba(46, 230, 230, 0.35);
+  opacity: 1 !important;
+}
+.app.photo-move-mode .ann.ann-photo-clipboard-node.has-photo-data {
+  cursor: grab;
+}
+.app.photo-rotate-mode .ann.ann-photo-clipboard-node.has-photo-data {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+/* Magenta accent on tool icon active state already via .active; keep dashed magenta always */
+#toolPhotoClipboard .tool-icon rect {
+  stroke: #dd007a;
+}
+
+
+
+/* ---- Confirm / progress modals ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.modal-backdrop[hidden] { display: none !important; }
+
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 18px 16px;
+  width: min(360px, 92vw);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+.modal-progress {
+  text-align: center;
+  width: min(280px, 90vw);
+}
+.modal-message {
+  margin: 0 0 16px;
+  white-space: pre-line;
+  font-size: 1rem;
+  line-height: 1.4;
+  color: var(--text);
+}
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.btn.danger {
+  background: #b91c1c;
+  border-color: #991b1b;
+  color: #fff;
+  font-weight: 700;
+}
+.btn.danger:hover, .btn.danger:focus-visible {
+  border-color: #fecaca;
+}
+
+/* Page +/- Doppelbutton: same outer size as other .tool-dual groups
+   (no extra margins on the dual buttons — they stretch the group) */
+#removePageBtn.tool-dual-btn,
+#addPageBtn.tool-dual-btn {
+  margin: 0 !important;
+  width: 34px;
+  min-width: 34px;
+  max-width: 34px;
+  flex: 0 0 34px;
+  padding: 0 !important;
+}
+/* v1.10: 3-part group − | Übersicht | + → shared 1px edges like other dual groups */
+.tool-dual #addPageBtn.tool-dual-btn { margin-left: -1px !important; }
+#removePageBtn.tool-dual-btn .tool-icon,
+#addPageBtn.tool-dual-btn .tool-icon {
+  width: 20px;
+  height: 20px;
+}
+
+
+
+/* Fehler button — mustard yellow (placeholder action) */
+#fehlerBtn,
+.fehler-btn {
+  display: none;
+  background: #e8b03f;
+  border-color: #c4922e;
+  color: #1a1a1a;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.app.edit-mode #fehlerBtn,
+.app.edit-mode .fehler-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.app.edit-mode.index-page-active #fehlerBtn,
+.app.edit-mode.fehler-page-active #fehlerBtn,
+.app.edit-mode.index-page-active .fehler-btn,
+.app.edit-mode.fehler-page-active .fehler-btn {
+  display: none !important;
+}
+#fehlerBtn:hover,
+#fehlerBtn:focus-visible,
+.fehler-btn:hover,
+.fehler-btn:focus-visible {
+  border-color: #f5d078;
+  outline: none;
+}
+
+/* Menü auch im Lesemodus (v1.18); Editor-only-Einträge im Drawer ausblenden */
+#menuBtn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+}
+.app:not(.edit-mode) #stuecklisteAddBtn,
+.app:not(.edit-mode) #pdfExportItem,
+.app:not(.edit-mode) #exportSection {
+  display: none !important;
+}
+
+/* Editor: view mode only, left of Sichern */
+#editorBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 6px;
+  background: #1e3a5f;
+  border-color: #3b82f6;
+  color: #fff;
+  font-weight: 700;
+}
+.app.edit-mode #editorBtn {
+  display: none !important;
+}
+#editorBtn:hover, #editorBtn:focus-visible {
+  border-color: #93c5fd;
+  outline: none;
+}
+
+/* Fertig: only in edit mode, green, sits left of Sichern */
+#fertigBtn {
+  display: none;
+  background: #16a34a;
+  border-color: #15803d;
+  color: #fff;
+  font-weight: 700;
+  margin-right: 6px;
+}
+.app.edit-mode #fertigBtn { display: inline-flex; align-items: center; justify-content: center; }
+#fertigBtn:hover, #fertigBtn:focus-visible {
+  border-color: #86efac;
+  outline: none;
+}
+
+/* ---- Edit mode: hide Öffnen / Sichern ---- */
+.app.edit-mode #ladenBtn,
+.app.edit-mode #sichernBtn {
+  display: none !important;
+}
+
+/* Layout-only tools hidden on index / Fehleranalyse pages */
+.app.edit-mode.index-page-active .layout-only-tool,
+.app.edit-mode.fehler-page-active .layout-only-tool {
+  display: none !important;
+}
+/* Index row add/remove obsolete with fixed 25 rows */
+.index-only-tool {
+  display: none !important;
+}
+
+/* ---- v1.19: Toolbar sanft aus-/einfaden (nicht display/visibility) ----
+   v1.24: nur Opacity – kein transform/translateY (fördert unscharfe Layer auf iOS) */
+.topbar .btn,
+.topbar .edit-tools,
+.topbar .status-flash,
+.topbar .title,
+.page-indicator,
+.ann-color-bar,
+.ann-arrow-bar {
+  opacity: 1;
+  transition: opacity 180ms ease-out;
+}
+.topbar .top-center {
+  opacity: 1;
+  transition: opacity 180ms ease-out;
+}
+.app.chrome-hidden .topbar .btn,
+.app.chrome-hidden .topbar .edit-tools,
+.app.chrome-hidden .topbar .status-flash,
+.app.chrome-hidden .topbar .title,
+.app.chrome-hidden .page-indicator,
+.app.chrome-hidden .ann-color-bar,
+.app.chrome-hidden .ann-arrow-bar {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease-in;
+}
+.app.chrome-hidden .topbar .top-center {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease-in;
+}
+/* v1.28: Floating bleibt transparent; nur Buttons/Cluster faden per Opacity */
+.app.chrome-hidden .topbar {
+  background: transparent;
+}
+
+/* ---- v1.40: Full-width Chrome-Bar hinter floating Topbar ----
+   Ersetzt die per-Cluster ::before-Patches aus v1.39.
+   Gleiche Transparenz rgba(80,80,80,0.48) + blur; fadet mit .chrome-hidden.
+   Nur horizontaler Streifen (Topbar-Höhe), pointer-events:none.
+   v1.41: Explizites Stacking — ::before immer hinter ALLEN Button-Clustern.
+   In-flow ohne position lag unter positioniertem ::before (z-index:0);
+   nur .top-center (z-index:2) blieb sichtbar. */
+.topbar {
+  /* Stacking-Kontext (isolation:isolate bereits in Basisregel); Bar darunter, Buttons darüber */
+  isolation: isolate;
+}
+.topbar::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(80, 80, 80, 0.48);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  z-index: 0;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 180ms ease-out;
+}
+.topbar .top-left,
+.topbar .top-actions,
+.topbar .top-center,
+.topbar .brand,
+.topbar .edit-tools {
+  position: relative;
+  z-index: 1;
+}
+.topbar .top-center {
+  /* absolute-Zentrierung behalten; über der Bar */
+  position: absolute;
+  z-index: 2;
+}
+.app.chrome-hidden .topbar::before {
+  opacity: 0;
+  transition: opacity 220ms ease-in;
+}
+
+/* ---- Index page (page 1) ---- */
+.index-page {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: #1a1a1a;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+  box-sizing: border-box;
+}
+
+/* v1.48: .index-header Hintergrund = Sichern-Akzent (var(--accent)).
+   v1.49: .index-chrome-spacer entfernt – Titelband oben, Tabelle wächst nach oben. */
+.index-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--accent); /* v1.48: gleiche Farbe wie „Sichern“ (.btn.primary / #dd007a) */
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 1.12rem; /* v1.20: leicht mit Tabellentext */
+  /* v1.46: kompakte Höhe, Text vertikal zentriert; volle Breite unverändert */
+  padding: 8px 12px 8px 16px;
+  letter-spacing: 0.01em;
+}
+.index-header-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.index-col-headers {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: #333333;
+  color: #9a9a9a;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 6px 16px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.index-col-nr {
+  flex: 0 0 52px;
+  width: 52px;
+}
+.index-col-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.index-col-target {
+  flex: 0 0 72px;
+  text-align: right;
+}
+
+.index-rows {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.index-row {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 16px;
+  color: #4a9eff;
+  background: #262626;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.index-row:nth-child(even) {
+  background: #404040;
+}
+.app.edit-mode .index-row {
+  cursor: default;
+}
+
+.index-nr {
+  flex: 0 0 52px;
+  width: 52px;
+  color: #4a9eff;
+  font-variant-numeric: tabular-nums;
+  /* v1.20: etwas größer + fett, bleibt gut in der Zeile */
+  font-size: 1em;
+  font-weight: 700;
+}
+
+.index-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #4a9eff;
+  background: transparent;
+  border: none;
+  outline: none;
+  font: inherit;
+  /* v1.20: ~+18 % und fett; Zeilenhöhe flex bleibt */
+  font-size: 1em;
+  font-weight: 700;
+  padding: 0;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.index-text[contenteditable="true"],
+input.index-text {
+  border-bottom: 1px solid rgba(74, 158, 255, 0.35);
+}
+input.index-text:focus {
+  border-bottom-color: #4a9eff;
+}
+
+.index-target {
+  flex: 0 0 64px;
+  width: 64px;
+  margin-left: 8px;
+  color: #4a9eff;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(74, 158, 255, 0.4);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font: inherit;
+  font-size: 0.95em; /* v1.20 */
+  font-weight: 700;
+  text-align: right;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.index-target:focus {
+  outline: none;
+  border-color: #4a9eff;
+}
+
+.index-row.flash-invalid {
+  animation: index-flash 0.35s ease;
+}
+@keyframes index-flash {
+  0%, 100% { background-color: inherit; }
+  50% { background-color: #6b1d1d; }
+}
+
+.app.edit-mode .index-text,
+.app.edit-mode .index-target {
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+/* ---- Shared bookend tabs (Index + Fehleranalyse) ---- */
+.bookend-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.bookend-tab {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+.bookend-tab.tab-fehler {
+  background: #c4922e;
+  color: #3a2a08;
+}
+.bookend-tab.tab-fehler.active {
+  background: #f0c060;
+  color: #5a3a10;
+}
+.bookend-tab.tab-arbeit {
+  background: #1a3a5c;
+  color: #7ec8ff;
+}
+.bookend-tab.tab-arbeit.active {
+  background: #0f2740;
+  color: #a8d8ff;
+}
+.index-header .bookend-tab.tab-fehler:not(.active) {
+  background: #e8b03f;
+  color: #3a2a08;
+}
+.index-header .bookend-tab.tab-arbeit.active {
+  background: #12304f;
+  color: #b6e0ff;
+}
+.fehler-header .bookend-tab.tab-fehler.active {
+  background: #f0c060;
+  color: #5a3a10;
+}
+.fehler-header .bookend-tab.tab-arbeit:not(.active) {
+  background: #1a3a5c;
+  color: #7ec8ff;
+}
+
+/* ---- Fehleranalyse page (always last) ---- */
+.fehler-page {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: #1a1a1a;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+  box-sizing: border-box;
+  touch-action: none; /* v1.19: horizontales Wischen → App */
+}
+/* v1.49: .fehler-chrome-spacer entfernt – orange Leiste oben, Tabelle wächst nach oben. */
+.fehler-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #e8b03f;
+  color: #1a1a1a;
+  font-weight: 700;
+  font-size: 1.05rem;
+  /* v1.45: kompakte Höhe, Text vertikal zentriert; volle Breite unverändert */
+  padding: 8px 12px 8px 16px;
+  letter-spacing: 0.01em;
+}
+.fehler-header-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.fehler-col-headers {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: #333333;
+  color: #9a9a9a;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 6px 16px;
+  border-bottom: 1px solid #2a2a2a;
+}
+.fehler-col-date {
+  flex: 0 0 100px;
+  width: 100px;
+}
+.fehler-col-description,
+.fehler-col-cause,
+.fehler-col-remedy {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-right: 8px;
+}
+.fehler-rows {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+  touch-action: none;
+}
+.fehler-row {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 16px;
+  color: #4a9eff;
+  background: #262626;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.35);
+  box-sizing: border-box;
+  touch-action: none;
+}
+.fehler-row:nth-child(even) {
+  background: #404040;
+}
+.fehler-cell {
+  color: #4a9eff;
+  background: transparent;
+  border: none;
+  outline: none;
+  font: inherit;
+  font-size: 0.82em;
+  padding: 0;
+  min-width: 0;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.fehler-date {
+  flex: 0 0 100px;
+  width: 100px;
+  font-variant-numeric: tabular-nums;
+}
+.fehler-description,
+.fehler-cause,
+.fehler-remedy {
+  flex: 1 1 0;
+  padding-right: 8px;
+}
+input.fehler-cell {
+  border-bottom: 1px solid rgba(74, 158, 255, 0.35);
+}
+input.fehler-cell:focus {
+  border-bottom-color: #4a9eff;
+}
+.app.edit-mode .fehler-cell {
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+.overview-caption {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 3px 6px;
+  border-radius: 4px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+
+/* ---- Übersicht (page overview) — view mode only, centered top ---- */
+#overviewBtn {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.app.edit-mode #overviewBtn,
+.app.edit-mode .top-center {
+  display: none !important;
+}
+
+.overview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(0, 0, 0, 0.78);
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: max(12px, env(safe-area-inset-top, 0px))
+           max(12px, env(safe-area-inset-right, 0px))
+           max(12px, env(safe-area-inset-bottom, 0px))
+           max(12px, env(safe-area-inset-left, 0px));
+}
+.overview-backdrop[hidden] { display: none !important; }
+
+.overview-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: min(1100px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.overview-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.overview-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.overview-close {
+  min-width: 40px;
+  font-size: 1.1rem;
+}
+
+.overview-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 14px;
+  padding: 16px;
+  align-content: start;
+}
+
+.overview-thumb {
+  position: relative;
+  aspect-ratio: 1180 / 820;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid var(--border);
+  background: #2a2a2a;
+  cursor: pointer;
+  padding: 0;
+  display: block;
+  width: 100%;
+  color: inherit;
+}
+.overview-thumb:hover,
+.overview-thumb:focus-visible {
+  border-color: var(--accent2);
+  outline: none;
+}
+.overview-thumb.current {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(221, 0, 122, 0.35);
+}
+.overview-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #333;
+}
+.overview-thumb .overview-miniature {
+  /* v1.10: full-size clone of the page, scaled uniformly via JS transform */
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+.overview-thumb .overview-miniature .stage {
+  position: relative;
+  pointer-events: none;
+}
+/* v1.18: Miniaturen zeigen linksbündigen Text wie die echte Seite */
+.overview-thumb .overview-miniature .index-text,
+.overview-thumb .overview-miniature .fehler-cell,
+.overview-thumb .overview-miniature .index-row,
+.overview-thumb .overview-miniature .fehler-row {
+  text-align: left !important;
+  justify-content: flex-start !important;
+}
+.overview-thumb img.overview-thumb-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #333;
+  pointer-events: none;
+}
+.overview-thumb .overview-badge,
+.overview-thumb .overview-caption { z-index: 3; }
+.overview-thumb .overview-placeholder {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, #2a2a2a 0%, #3a3a3a 50%, #2a2a2a 100%);
+  animation: overviewPulse 1.2s ease-in-out infinite;
+}
+@keyframes overviewPulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.9; }
+}
+.overview-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+
+/* ---- Layout page Fehleranalyse embed ---- */
+/* Keep the logical stage geometry from .stage-inner so iPad cover mode
+   can bottom-align and scale embedded Fehleranalyse pages like photo pages. */
+.stage-inner.with-fehler-embed {
+  display: flex;
+  flex-direction: column;
+}
+.layout-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+.fehler-embed {
+  flex: 0 0 auto;
+  max-height: 40%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #1a1a1a;
+  border-top: 1px solid #000;
+  -webkit-user-select: none;
+  user-select: none;
+  box-sizing: border-box;
+}
+.fehler-embed .fehler-embed-header,
+.fehler-embed-header {
+  padding: 0 10px 0 14px;
+  height: 26px;
+  min-height: 26px;
+  max-height: 26px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 26px;
+  gap: 8px;
+  box-sizing: border-box;
+}
+.fehler-embed .fehler-col-headers {
+  padding: 0 14px;
+  height: 26px;
+  min-height: 26px;
+  max-height: 26px;
+  font-size: 0.7rem;
+  line-height: 26px;
+  box-sizing: border-box;
+}
+.fehler-embed-rows {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+.fehler-embed .fehler-row {
+  flex: 0 0 auto;
+  min-height: 28px;
+  height: 2.1em;
+  padding: 0 10px 0 14px;
+}
+.fehler-col-actions {
+  flex: 0 0 34px;
+  width: 34px;
+}
+.fehler-embed-plus,
+.fehler-embed-minus {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.fehler-embed-plus {
+  background: #16a34a;
+  border: 1px solid #15803d;
+  color: #fff;
+}
+.fehler-embed-plus:hover,
+.fehler-embed-plus:focus-visible {
+  border-color: #86efac;
+  outline: none;
+}
+.fehler-embed-minus {
+  margin-left: 6px;
+  background: #b91c1c;
+  border: 1px solid #991b1b;
+  color: #fff;
+}
+.fehler-embed-minus:hover,
+.fehler-embed-minus:focus-visible {
+  border-color: #fecaca;
+  outline: none;
+}
+.fehler-embed-row {
+  gap: 0;
+}
+.fehler-row-nav {
+  cursor: pointer;
+}
+.fehler-row.flash-highlight {
+  outline: 2px solid #4a9eff;
+  outline-offset: -2px;
+  background: #1e3a5f !important;
+  transition: background 0.2s ease;
+}
+
+
+/* Stückliste viewer: PDF + checklist */
+.beak-pdf-frame {
+  /* already defined; extend layout below */
+}
+.beak-pdf-layout {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.beak-pdf-pane {
+  flex: 1 1 58%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.beak-pdf-pane iframe {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  background: #fff;
+}
+.beak-check-pane {
+  flex: 0 0 min(420px, 42%);
+  max-width: 480px;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #d0d7e2;
+  background: #f7f9fc;
+  min-height: 0;
+}
+.beak-check-header {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #0a1628;
+  border-bottom: 1px solid #d0d7e2;
+  background: #fff;
+}
+.beak-check-list {
+  flex: 1 1 auto;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px;
+}
+.beak-check-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5.5rem 4.5rem;
+  gap: 6px;
+  align-items: center;
+  padding: 7px 8px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+.beak-check-desc {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #0a1628;
+}
+.beak-check-edv {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #1e3a5f;
+  text-align: right;
+}
+.beak-check-bedarf {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  border-radius: 6px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+}
+.beak-check-bedarf.is-ok {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #86efac;
+}
+.beak-check-bedarf.is-bad {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #fca5a5;
+  cursor: pointer;
+}
+.beak-check-bedarf.is-bad:hover,
+.beak-check-bedarf.is-bad:focus-visible {
+  outline: 2px solid #ef4444;
+  outline-offset: 1px;
+}
+.beak-check-empty {
+  padding: 16px 12px;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+@media (max-width: 900px) {
+  .beak-pdf-layout {
+    flex-direction: column;
+  }
+  .beak-check-pane {
+    flex: 0 0 38%;
+    max-width: none;
+    min-width: 0;
+    border-left: 0;
+    border-top: 1px solid #d0d7e2;
+  }
+}
+
+/* Hinweis modal (single OK) */
+.modal-actions.hinweis-actions {
+  justify-content: flex-end;
+}
+
+
+/* ==== v1.8 ==== */
+
+/* Menü: Versionsanzeige */
+.drawer-version {
+  margin-top: auto;
+  padding: 14px 4px 4px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Hinweis-Text mit Zeilenumbrüchen */
+#hinweisMessage { white-space: pre-line; }
+
+/* Fehleranalyse (letzte Seite): leere Zeilen nicht direkt befüllbar */
+.fehler-row.is-readonly {
+  cursor: default;
+}
+.fehler-row.is-readonly .fehler-cell {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Lesemodus: BEAK-Nr. antippbar → Stückliste */
+.app:not(.edit-mode) .ann-beak-wrap { cursor: pointer; }
+
+/* Übersicht: Panel lässt Rand zum Antippen/Schließen frei */
+.overview-backdrop { align-items: center; }
+.overview-panel {
+  width: min(1040px, calc(100vw - 64px));
+  max-height: calc(100dvh - 64px);
+}
+
+/* Stückliste-Lightbox: Kopfzeile, pdf.js-Seiten, Zeilenmarkierung */
+.beak-pdf-topbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 8px 14px;
+  background: #0a1628;
+  color: #fff;
+  border-bottom: 3px solid var(--accent, #dd007a);
+}
+.beak-pdf-title {
+  font-weight: 800;
+  font-size: 0.98rem;
+  white-space: nowrap;
+}
+.beak-pdf-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.82rem;
+  color: #cbd5e1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.beak-pdf-topbar .btn {
+  color: #fff;
+  min-width: 40px;
+  min-height: 36px;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.beak-pdf-close { background: var(--accent, #dd007a); border-color: #a8005c; }
+.beak-pdf-frame .beak-pdf-layout { flex: 1 1 auto; height: auto; }
+.beak-pdf-pages {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  background: #525659;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.beak-pdf-pages[hidden] { display: none !important; }
+.beak-pdf-pane iframe[hidden] { display: none !important; }
+.beak-pdf-page {
+  position: relative;
+  flex: 0 0 auto;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+}
+.beak-pdf-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.beak-pdf-page-label {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  font-size: 0.68rem;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 4px;
+  padding: 1px 6px;
+  pointer-events: none;
+}
+.beak-pdf-hl {
+  position: absolute;
+  /* v1.9: grün wie die Checkliste */
+  background: rgba(34, 197, 94, 0.35);
+  outline: 2px solid #16a34a;
+  border-radius: 2px;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  animation: beakHlPulse 1.1s ease-in-out 3;
+}
+@keyframes beakHlPulse {
+  0%, 100% { background: rgba(34, 197, 94, 0.35); }
+  50% { background: rgba(34, 197, 94, 0.55); }
+}
+.beak-pdf-lightbox.is-part-mode .beak-check-pane { display: none; }
+.beak-check-row { cursor: pointer; }
+.beak-check-row.is-active {
+  border-color: var(--accent, #dd007a);
+  box-shadow: 0 0 0 2px rgba(221, 0, 122, 0.25);
+}
+
+
+/* ==== v1.9 ==== */
+
+/* Bildschirm füllen: ältere iOS-Versionen ohne dvh */
+@supports (-webkit-touch-callout: none) {
+  html, body, .app { min-height: -webkit-fill-available; }
+}
+@supports (height: 100dvh) {
+  html, body, .app { height: 100dvh; }
+}
+html.is-fullscreen, html.is-fullscreen body { background: var(--page-bg); }
+:fullscreen { background: var(--page-bg); }
+::backdrop { background: #000; }
+
+/* Übersicht-Button: Icon (Seitenkacheln) im Lese- und Editormodus */
+.btn.overview-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 4px 10px 4px 7px;
+}
+.btn.overview-btn .tool-icon {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+/* v1.10: Übersicht sits in the middle of the page group: − Seite | Übersicht | + Seite
+   (the group lives in .edit-tools, so it is only visible in edit mode) */
+.tool-dual .tool-dual-btn.btn.icon-btn.overview-edit-btn {
+  border-radius: 0;
+  margin: 0 0 0 -1px !important;
+  width: 34px;
+  min-width: 34px;
+  max-width: 34px;
+  flex: 0 0 34px;
+  padding: 0 !important;
+}
+
+/* v1.10: Stückliste-PDF button (right of „Laden“; in both modes) */
+.btn.icon-btn.pdf-view-btn {
+  display: inline-flex;
+  flex: 0 0 34px;
+}
+.btn.icon-btn.pdf-view-btn .tool-icon {
+  width: 22px;
+  height: 22px;
+}
+.pdf-view-btn .tool-icon text { fill: var(--panel2); }
+.pdf-view-btn.no-pdf { opacity: 0.55; }
+
+/* Vollbild-Buttons */
+.fullscreen-btn { display: none; }
+.app:not(.edit-mode) .fullscreen-btn { display: inline-flex; margin-right: 2px; }
+.fullscreen-btn[hidden],
+.fullscreen-menu-item[hidden],
+.app:not(.edit-mode) .fullscreen-btn[hidden] { display: none !important; }
+.fullscreen-btn .fs-exit { display: none; }
+.fullscreen-btn.is-active .fs-enter { display: none; }
+.fullscreen-btn.is-active .fs-exit { display: block; }
+.fullscreen-btn.is-active { border-color: var(--accent2); background: #1e3a5f; }
+
+/* Checkliste: summierte Mehrfach-Zeilen */
+.beak-check-multi {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #e0e7ff;
+  color: #3730a3;
+  font-size: 0.68rem;
+  font-weight: 700;
+  vertical-align: 1px;
+}
+.app.edit-mode .fullscreen-btn { display: none !important; }
+.btn.icon-btn.fullscreen-btn .tool-icon.fs-exit { display: none; }
+.btn.icon-btn.fullscreen-btn.is-active .tool-icon.fs-enter { display: none; }
+.btn.icon-btn.fullscreen-btn.is-active .tool-icon.fs-exit { display: block; }
+
+/* v1.22: Container-Queries – Desktop contain; iPad-Fill nur mit html.stage-ipad-fill */
+@supports (width: 1cqw) {
+  .page-slide {
+    container-type: size;
+    align-items: stretch;
+    justify-content: center;
+  }
+  .stage {
+    height: 100%;
+    height: 100cqh;
+    width: auto;
+    width: min(100cqw, calc(100cqh * 1180 / 820));
+    aspect-ratio: 1180 / 820;
+    max-height: 100%;
+    max-height: 100cqh;
+    max-width: 100%;
+    max-width: 100cqw;
+  }
+  html.stage-ipad-fill .page-slide {
+    align-items: stretch;
+  }
+  html.stage-ipad-fill .stage {
+    width: 100%;
+    width: 100cqw;
+    height: 100%;
+    height: 100cqh;
+    max-width: 100%;
+    max-width: 100cqw;
+    max-height: 100%;
+    max-height: 100cqh;
+    aspect-ratio: auto;
+    background: #000000;
+  }
+  html.stage-ipad-window .page-slide {
+    justify-content: center;
+    align-items: stretch;
+  }
+  html.stage-ipad-window .stage {
+    height: 100%;
+    height: 100cqh;
+    width: auto;
+    width: min(100cqw, calc(100cqh * 1180 / 820));
+    aspect-ratio: 1180 / 820;
+    max-height: 100%;
+    max-height: 100cqh;
+    max-width: 100%;
+    max-width: 100cqw;
+  }
+}
+
+/* v1.28: Floating-Topbar + opake Statusleiste (black) – kein zusätzlicher schwarzer ::before-Streifen */
+.app::before { content: none; display: none; }
+html.stage-ipad-fill .app::before {
+  content: none;
+  display: none;
+}
+/* Übersicht (Mitte): absolute Zentrierung ohne translate (Hauptregel .top-center) */
+.top-center {
+  top: max(8px, var(--stage-top-inset));
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: max-content;
+  transform: none;
+  -webkit-transform: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.top-center .first-page-btn,
+.top-center .last-page-btn {
+  color: #f0f0f0;
+}
+
+/* ---- Farbleiste (Rechteck / Kreis / Text) ----------------------------------
+   v1.11: EIN senkrechter Gruppenbutton (wie „− Seite | Übersicht | + Seite“, nur
+   gestapelt): gemeinsame Kanten, Segmente in normaler Toolbar-Größe (34 px),
+   rechts bündig direkt unter „Fertig“ (top/right per JS). */
+.ann-color-bar {
+  position: fixed;
+  top: 52px;
+  right: 12px;
+  z-index: 30; /* über Seite (≤20), unter Menü (40/45) und Dialogen (100+) */
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+.ann-color-bar[hidden] { display: none !important; }
+.app:not(.edit-mode) .ann-color-bar { display: none !important; }
+.ann-color-bar .btn.icon-btn.ann-color-swatch {
+  position: relative;
+  width: 34px;
+  min-width: 34px;
+  max-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--panel2);
+  box-shadow: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+}
+.ann-color-bar .btn.icon-btn.ann-color-swatch + .ann-color-swatch { margin-top: -1px; }
+.ann-color-bar .btn.icon-btn.ann-color-swatch:first-child { border-radius: 8px 8px 0 0; }
+.ann-color-bar .btn.icon-btn.ann-color-swatch:last-child { border-radius: 0 0 8px 8px; }
+.ann-color-bar:not(.is-text-colors) .btn.icon-btn.ann-color-swatch[data-color="pink"] {
+  border-radius: 0 0 8px 8px;
+}
+.ann-color-bar.is-text-colors .btn.icon-btn.ann-color-swatch.ann-color-none {
+  border-radius: 0 0 8px 8px;
+}
+.ann-color-bar.is-text-colors .btn.icon-btn.ann-color-swatch[data-color="pink"] {
+  border-radius: 0;
+}
+.ann-color-bar .btn.icon-btn.ann-color-swatch:hover,
+.ann-color-bar .btn.icon-btn.ann-color-swatch:focus-visible {
+  background: #2a3344;
+  border-color: var(--accent2);
+  outline: none;
+  z-index: 2;
+}
+/* v1.12: Ausgewählt = exakt der Aktiv-Stil der anderen Gruppenbuttons
+   (.tool-dual .tool-dual-btn.btn.icon-btn.active) – ohne Magenta */
+.ann-color-bar .btn.icon-btn.ann-color-swatch.active {
+  background: #1e3a5f;
+  color: #fff;
+  border-color: var(--accent2);
+  box-shadow: none;
+  z-index: 2;
+}
+/* Schlichtes Farbsymbol ohne Zusatzkonturen: Ring (Rechteck/Kreis), gefüllter Kreis (Text) */
+.ann-color-dot {
+  --sw: #f00;
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 3px solid var(--sw);
+  background: transparent;
+  box-shadow: none;
+  pointer-events: none;
+}
+.ann-color-dot.is-text {
+  border: none;
+  background: var(--sw);
+}
+
+/* v1.68/v1.69: „keine“ – transparenter Swatch nur bei Text; Label entfernt (nur Schachbrett) */
+.ann-color-bar .btn.icon-btn.ann-color-swatch.ann-color-none[hidden] {
+  display: none !important;
+}
+.ann-color-dot-none {
+  border: 1.5px dashed rgba(255, 255, 255, 0.55) !important;
+  background:
+    linear-gradient(45deg, #666 25%, transparent 25%),
+    linear-gradient(-45deg, #666 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #666 75%),
+    linear-gradient(-45deg, transparent 75%, #666 75%) !important;
+  background-size: 8px 8px !important;
+  background-position: 0 0, 0 4px, 4px -4px, -4px 0 !important;
+  background-color: #333 !important;
+  border-radius: 4px !important;
+  width: 18px !important;
+  height: 18px !important;
+}
+.ann-color-none-label { display: none !important; }
+
+/* ---- v1.12: Drag & Drop-Ziel (Bild in Zelle ziehen) ------------------------ */
+.cell-leaf.drop-target::before {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  z-index: 29;
+  border: 4px dashed var(--accent);
+  border-radius: 10px;
+  background: rgba(221, 0, 122, 0.2);
+  pointer-events: none;
+}
+.cell-leaf.drop-target::after {
+  content: "Bild hier ablegen";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 30;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  font-weight: 700;
+  font-size: 1rem;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.cell-leaf.drop-target.drop-replace::after { content: "Foto ersetzen"; }
+
+/* ---- v1.13: Foto drehen ---------------------------------------------------
+   Bei 90°/270° bekommt das Foto einen Rahmen mit vertauschten Seiten (Container-
+   Einheiten der Zelle), zentriert, und wird per transform: rotate() gedreht. */
+.cell-leaf { container-type: size; }
+.cell-photo.photo-rot-odd {
+  inset: auto;
+  left: calc(50% - 50cqh);
+  top: calc(50% - 50cqw);
+  width: 100cqh;
+  height: 100cqw;
+}
+.app.photo-rotate-mode .cell-leaf.has-photo-data { cursor: pointer; touch-action: manipulation; }
+
+/* ---- v1.13: Pfeile -------------------------------------------------------- */
+.ann.ann-arrow-node {
+  transform-origin: 50% 50%;
+  color: var(--ann-red);
+}
+.ann-arrow {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  display: block;
+}
+.app.edit-mode .ann.ann-arrow-node.selected {
+  outline: 1px dashed rgba(59, 130, 246, 0.85);
+  outline-offset: 2px;
+}
+.handle.rot-handle {
+  /* v1.54: 44×44 hitbox; 18px visual circle via ::after */
+  left: 50%;
+  bottom: -53px;
+  margin-left: -22px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  cursor: grab;
+  background: transparent;
+  border: none;
+}
+.handle.rot-handle::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: calc(50% + 9px);
+  width: 2px;
+  height: 24px;
+  margin-left: -1px;
+  background: var(--accent2);
+  pointer-events: none;
+}
+.handle.rot-handle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  margin-top: -9px;
+  box-sizing: border-box;
+  background: #fff;
+  border: 2px solid var(--accent2);
+  border-top-color: transparent;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.arrow-kind-icon {
+  width: 22px;
+  height: 22px;
+  display: block;
+  pointer-events: none;
+}
+.ann-color-bar.ann-arrow-bar .btn.icon-btn.ann-color-swatch { color: #e5e7eb; }
+.ann-color-bar.ann-arrow-bar .btn.icon-btn.ann-color-swatch.active { color: #fff; }
+
+/* ---- v1.13: Rückgängig | Wiederholen (nur im Editor) ---------------------- */
+.tool-dual.undo-group { display: none; }
+.app.edit-mode .tool-dual.undo-group { display: inline-flex; }
+.tool-dual.undo-group .tool-dual-btn.btn.icon-btn:disabled {
+  opacity: 0.38;
+  cursor: default;
+  background: var(--panel2);
+  border-color: var(--border);
+}
+
+
+/* v1.14: BEAK-Nr.-Eingabe – Hinweis „Menge optional“ unter dem Feld (nur beim Bearbeiten) */
+.ann-beak-wrap { position: relative; }
+.ann-beak-hint {
+  display: none;
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: rgba(20, 24, 32, 0.94);
+  border: 1px solid var(--accent2);
+  color: #e8edf5;
+  font-size: 0.78rem;
+  font-weight: 400;
+  line-height: 1.35;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+.ann-beak-hint b { color: #ffffff; font-weight: 700; font-variant-numeric: tabular-nums; }
+.app.edit-mode .ann-beak-wrap.is-editing .ann-beak-hint { display: block; }
+.ann-beak-input::placeholder { color: rgba(0, 0, 0, 0.38); font-weight: 600; }
+.ann-beak-hint.hint-up { top: auto; bottom: calc(100% + 6px); }
+.ann-beak-hint.hint-left { left: auto; right: 0; }
+
+/* ==== v1.15: Abgleich – „Nicht in der Stückliste“ ==== */
+.beak-unmatched {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 2px solid #fca5a5;
+}
+.beak-unmatched.is-clean {
+  border-top-color: #d0d7e2;
+  border-top-width: 1px;
+}
+.beak-unmatched-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 2px 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  border-left: 4px solid #dc2626;
+}
+.beak-unmatched-title {
+  font-weight: 800;
+  font-size: 0.85rem;
+  color: #991b1b;
+}
+.beak-unmatched-title::before {
+  content: '⚠';
+  margin-right: 6px;
+}
+.beak-unmatched-sub {
+  font-size: 0.72rem;
+  color: #7f1d1d;
+}
+button.beak-unmatched-row {
+  width: 100%;
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  color: inherit;
+  border-color: #fecaca;
+  border-left: 4px solid #ef4444;
+  background: #fff;
+  -webkit-appearance: none;
+  appearance: none;
+}
+button.beak-unmatched-row:hover,
+button.beak-unmatched-row:focus-visible {
+  outline: none;
+  background: #fff5f5;
+  border-color: #f87171;
+}
+.beak-unmatched-row .beak-unmatched-pages { color: #7f1d1d; }
+.beak-unmatched-row .beak-check-edv { color: #991b1b; }
+.beak-unmatched-qty { cursor: pointer; }
+.beak-unmatched-ok {
+  padding: 4px 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #166534;
+}
+/* Sprungziel kurz hervorheben */
+.ann.ann-find-flash {
+  animation: annFindFlash 0.6s ease-in-out 0s 4;
+  z-index: 40;
+}
+@keyframes annFindFlash {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); outline: 0 solid transparent; }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.55); outline: 3px solid #ef4444; outline-offset: 2px; }
+}
+
+/* v1.15: Symbol + Beschriftung (Stückliste, Öffnen, Editor, Sichern) – Stil wie „Übersicht“ */
+.btn.label-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 11px 0 8px;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+.btn.label-btn .tool-icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+.btn.label-btn .btn-label { pointer-events: none; }
+.btn.label-btn.pdf-view-btn { flex: 0 0 auto; color: #f0f0f0; }
+.btn.label-btn.pdf-view-btn .tool-icon { width: 22px; height: 22px; margin: -1px -1px -1px -2px; }
+.btn.label-btn.open-btn { color: #f0f0f0; }
+.btn.label-btn.editor-btn,
+.btn.label-btn.primary { font-weight: 700; }
+/* v1.62: Stückliste/PDF bleibt im Editor immer icon-only (Tooltip/ARIA bleiben erhalten),
+   damit mehr Werkzeuge in eine Zeile passen. Der Viewer behält die Beschriftung. */
+.app.edit-mode .btn.label-btn.pdf-view-btn {
+  width: 34px;
+  min-width: 34px;
+  flex: 0 0 34px;
+  padding: 0;
+}
+.app.edit-mode .btn.label-btn.pdf-view-btn .btn-label { display: none; }
+.beak-unmatched { padding-bottom: 10px; }
+
+/* v1.17: Browser-Speicher konnte nicht sichern → „Sichern“ rot umrandet (nicht-destruktiver Hinweis) */
+.btn.storage-warn {
+  box-shadow: 0 0 0 2px #ef4444, 0 0 10px rgba(239, 68, 68, 0.7);
+  position: relative;
+}
+.btn.storage-warn::after {
+  content: '!';
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ef4444;
+  color: #fff;
+  font: 700 11px/16px system-ui, sans-serif;
+  text-align: center;
+}
+
+/* ==== v1.17 ============================================================== */
+/* (3) Toolbar: kein backdrop-filter. v1.24: kein filter:none auf .topbar * (Offscreen-Buffer) */
+.topbar, .ann-color-bar {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/* v1.26: kein antialiased – wirkt auf Retina weich; Default/subpixel */
+.topbar .btn { -webkit-font-smoothing: subpixel-antialiased; }
+
+/* (2) iPad Home-Bildschirm-App: volle Bildschirmhöhe, wenn WebKit die Statusleiste abzieht */
+html.app-h-fix, html.app-h-fix body, html.app-h-fix .app {
+  height: var(--app-h) !important;
+  min-height: var(--app-h) !important;
+  max-height: var(--app-h) !important;
+}
+html.app-w-fix, html.app-w-fix body, html.app-w-fix .app {
+  width: var(--app-w) !important;
+  max-width: var(--app-w) !important;
+}
+/* v1.28: Topbar absolute Overlay → .page füllt volle App-Höhe (flex:1; min-height:0).
+   Viewport/Track/Slide füllen .page. */
+html.app-h-fix .page {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+}
+html.app-h-fix .page-viewport,
+html.app-h-fix .page-track,
+html.app-h-fix .page-slide {
+  height: 100% !important;
+  max-height: 100% !important;
+}
+html.app-w-fix .page,
+html.app-w-fix .page-viewport,
+html.app-w-fix .page-track {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* (5) Wischen: entfernte Seiten nicht rendern, nur Nachbarn als eigene Ebene */
+.page-slide.far {
+  content-visibility: hidden;
+  transform: none;
+  -webkit-transform: none;
+}
+.cell-photo { -webkit-user-drag: none; }
+
+/* (7) BEAK-Nr.: Hand-Cursor wie bei den Fehleranalyse-Einträgen */
+.ann-beak-wrap, .ann-beak-wrap .ann-beak-display,
+.app.edit-mode .ann-beak-display,
+.app.edit-mode .ann:has(.ann-beak-wrap),
+#toolBeakNr { cursor: pointer; }
+.app.edit-mode .ann-beak-input:focus { cursor: text; }
+
+/* (8) Stückliste-Viewer: natives Scrollen mit Schwung auf dem iPad */
+html.overlay-scroll, html.overlay-scroll body { touch-action: auto; }
+.beak-pdf-lightbox, .beak-pdf-frame, .beak-pdf-layout, .beak-pdf-pane, .beak-check-pane {
+  touch-action: pan-x pan-y pinch-zoom;
+}
+.beak-pdf-pages, .beak-check-list, .overview-grid {
+  touch-action: pan-x pan-y;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  transform: translateZ(0);
+}
+
+/* (10) Übersicht: Raster rechnet app.js (fitOverviewGrid) – Kacheln füllen ihre Zelle */
+.overview-grid { align-content: center; }
+.overview-thumb { width: 100%; height: 100%; aspect-ratio: auto; min-width: 0; min-height: 0; }
+
+/* (6) Installierte Desktop-App mit Window Controls Overlay: Seite bis zur Oberkante,
+   Toolbar unter die Fenstertasten, schmale Zugleiste zum Verschieben des Fensters */
+.wco-drag { display: none; }
+@media (display-mode: window-controls-overlay) {
+  .wco-drag {
+    display: block;
+    position: fixed;
+    left: env(titlebar-area-x, 0px);
+    top: env(titlebar-area-y, 0px);
+    width: env(titlebar-area-width, 100%);
+    height: env(titlebar-area-height, 0px);
+    -webkit-app-region: drag;
+    app-region: drag;
+    z-index: 45;
+  }
+  .topbar {
+    padding-top: calc(env(titlebar-area-y, 0px) + env(titlebar-area-height, 0px) + 4px);
+  }
+  .top-center { top: calc(env(titlebar-area-y, 0px) + env(titlebar-area-height, 0px) + 4px); }
+  :root { --chrome-clearance: calc(env(titlebar-area-y, 0px) + env(titlebar-area-height, 0px) + 44px); }
+}
+
+
+/* ==== v1.18 ============================================================== */
+.drawer-help {
+  margin: 6px 12px 14px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  overflow: hidden;
+}
+.drawer-help summary {
+  padding: 10px 12px;
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+}
+.drawer-help summary::marker { color: var(--muted); }
+.drawer-help[open] summary { border-bottom: 1px solid var(--border); }
+.drawer-help-body { padding: 10px 12px; }
+.drawer-help code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78em;
+  color: #c7d2fe;
+}
+
+/* Toolbar: solide Flächen, kein Glaseffekt unter Statusleiste
+   v1.24: voll deckend (#1a1f27); kein transform/filter (iOS Schärfe) */
+.topbar .btn {
+  background: #1a1f27;
+  opacity: 1;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  -webkit-font-smoothing: subpixel-antialiased;
+  filter: none;
+  text-shadow: none;
+  transform: none;
+  -webkit-transform: none;
+}
+.topbar .btn.primary { background: var(--accent); }
+.topbar .top-center .btn {
+  background: #1a1f27;
+}
+.topbar .top-center .btn.primary { background: var(--accent); }
+.topbar, .topbar .btn, .topbar .top-center, .ann-color-bar {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Übersicht-Cache: Placeholder bleibt, bis Thumb da ist */
+.overview-thumb.has-thumb img.overview-thumb-img { z-index: 1; position: relative; }
+
+
+/* ==== v1.19 ============================================================== */
+.fehler-row-nav { touch-action: none; }
+.fehler-embed .fehler-row { touch-action: none; }
+
+/* v1.49: Erste/Letzte Seite wieder mit Label (wie v1.18 label-btn) */
+.top-center .first-page-btn.label-btn,
+.top-center .last-page-btn.label-btn {
+  color: #f0f0f0;
+  flex: 0 0 auto;
+}
+
+/* Kamera/Fotos: Icon-Segmente */
+.cell-cam-seg {
+  min-height: 44px;
+}
+.cell-cam-seg-btn.cell-fotos,
+.cell-cam-seg-btn.cell-kamera:not(.live) {
+  flex: 0 0 48px;
+}
+
+
+/* ==== v1.20 ============================================================== */
+/* Index-Titel editierbar (Editor) */
+.app.edit-mode input.index-header-title {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  letter-spacing: inherit;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 2px 4px;
+  outline: none;
+  pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.app.edit-mode input.index-header-title:focus {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+
+/* ---- v1.34: Info-Annotation Popup (über aktueller Stage) ---- */
+.info-popup-root {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.18);
+  pointer-events: auto;
+  touch-action: none;
+}
+.info-popup-panel {
+  position: relative;
+  box-sizing: border-box;
+  width: 85%;
+  height: 85%;
+  max-width: 85%;
+  max-height: 85%;
+  background: rgba(74, 158, 255, 0.9);
+  border: 2px solid #2f7fd4;
+  border-radius: 8px;
+  color: #ffffff;
+  padding: 16px 44px 16px 18px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.info-popup-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.22);
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.info-popup-close:hover,
+.info-popup-close:focus-visible {
+  background: rgba(0, 0, 0, 0.38);
+  outline: none;
+}
+.info-popup-body {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  outline: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  min-height: 2em;
+}
+.app.edit-mode .info-popup-body[contenteditable="true"] {
+  cursor: text;
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+  padding: 6px 8px;
+}
+
+
+/* ==== v1.55: Willkommen + Tour ============================================ */
+.welcome-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 20%, rgba(221, 0, 122, 0.18), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 80% 90%, rgba(59, 130, 246, 0.08), transparent 50%),
+    #000000;
+}
+.welcome-screen[hidden] { display: none !important; }
+.welcome-card {
+  width: min(420px, 94vw);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px 24px 22px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(221, 0, 122, 0.12);
+  text-align: center;
+}
+.welcome-brand { margin-bottom: 22px; }
+.welcome-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  display: block;
+  margin: 0 auto 14px;
+  box-shadow: 0 8px 24px rgba(221, 0, 122, 0.35);
+}
+.welcome-title {
+  margin: 0 0 6px;
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+.welcome-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.98rem;
+  line-height: 1.4;
+}
+.welcome-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.welcome-btn {
+  width: 100%;
+  justify-content: center;
+  min-height: 48px;
+  font-weight: 700;
+}
+.welcome-btn.primary {
+  background: var(--accent);
+  border-color: #b80066;
+  color: #fff;
+}
+.welcome-btn.primary:hover,
+.welcome-btn.primary:focus-visible {
+  border-color: #ff4da6;
+}
+.welcome-tour-btn {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+  font-weight: 600;
+}
+.welcome-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.welcome-hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #c7d2fe;
+  font-size: 0.92em;
+}
+
+
+.welcome-version {
+  margin: 16px 0 0;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: var(--muted);
+  opacity: 0.85;
+  letter-spacing: 0.02em;
+}
+
+/* v1.57: Drawer über Tour-Overlay, nur Anzeige (keine Klicks) */
+.app.tour-menu-open .drawer.open {
+  z-index: 130;
+  pointer-events: none;
+}
+.app.tour-menu-open .menu-backdrop.open {
+  z-index: 125;
+  pointer-events: none;
+}
+
+/* v1.65: Willkommen – gesamte Topbar inkl. Menü-Button verborgen (kein Chrome) */
+.app.welcome-open .topbar,
+.app.welcome-open .page,
+.app.welcome-open .ann-color-bar,
+.app.welcome-open .page-indicator,
+.app.welcome-open .topbar::before {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+.app.welcome-open .topbar {
+  z-index: 0;
+}
+.app.welcome-open .drawer {
+  z-index: 95;
+}
+.app.welcome-open .menu-backdrop {
+  z-index: 92;
+}
+
+.drawer .btn.block:disabled,
+.drawer .btn.block[aria-disabled="true"] {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.tour-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px 16px max(24px, env(safe-area-inset-bottom));
+  background: rgba(0, 0, 0, 0.55);
+}
+.tour-overlay[hidden] { display: none !important; }
+.tour-spotlight {
+  position: absolute;
+  border-radius: 12px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.62), 0 0 0 2px var(--accent);
+  pointer-events: none;
+  transition: top 0.25s ease, left 0.25s ease, width 0.25s ease, height 0.25s ease;
+  display: none;
+}
+.tour-spotlight.on { display: block; }
+.tour-card {
+  position: relative;
+  z-index: 1;
+  width: min(440px, 94vw);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 16px 14px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.55);
+}
+.tour-step {
+  margin: 0 0 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.tour-title {
+  margin: 0 0 8px;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--text);
+}
+.tour-body {
+  margin: 0 0 16px;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--muted);
+  white-space: pre-line;
+}
+.tour-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.tour-nav {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.tour-nav .btn.primary {
+  background: var(--accent);
+  border-color: #b80066;
+  color: #fff;
+  font-weight: 700;
+}
+
+/* ==== v1.60: Viewer chrome icons-only when topbar clusters would overlap ==== */
+/* Editor (.edit-mode) never applies — full labels always. */
+.app.viewer-chrome-compact:not(.edit-mode) .topbar .btn-label,
+.app.viewer-chrome-compact:not(.edit-mode) .topbar .overview-btn-label {
+  display: none !important;
+}
+.app.viewer-chrome-compact:not(.edit-mode) .topbar .btn.label-btn,
+.app.viewer-chrome-compact:not(.edit-mode) .topbar .btn.overview-btn {
+  width: 34px;
+  min-width: 34px;
+  max-width: 34px;
+  padding: 0;
+  gap: 0;
+  justify-content: center;
+}
+.app.viewer-chrome-compact:not(.edit-mode) .topbar .btn.label-btn .tool-icon,
+.app.viewer-chrome-compact:not(.edit-mode) .topbar .btn.overview-btn .tool-icon {
+  margin: 0;
+}
+.app.viewer-chrome-compact:not(.edit-mode) .topbar .top-left,
+.app.viewer-chrome-compact:not(.edit-mode) .topbar .top-actions {
+  gap: 3px;
+  flex-wrap: nowrap;
+}
+.app.viewer-chrome-compact:not(.edit-mode) .topbar .brand {
+  gap: 3px;
+}
+.app.viewer-chrome-compact:not(.edit-mode) .topbar .top-center {
+  gap: 4px;
+}
+
+/* ==== v1.63: Editor topbar — one row when it fits; wrap only on true overflow ====
+   Viewer keeps absolute .top-center + v1.60 icons-only compact.
+   Root cause (v1.61): flex: 1 1 260px|380px forced equal growth of .top-left /
+   .top-actions, so .top-actions stayed too narrow for tools+Fertig while a middle
+   gap remained; flex-wrap on .top-actions then parked Fertig alone on row 2.
+   Fix: content-sized clusters (no forced grow), nowrap on .top-actions so Fertig
+   stays beside edit-tools; whole .topbar wraps only when left+actions cannot share
+   one line. edit-tools may still wrap internally when the actions row is full-width
+   but still tight. Chrome ::before (top/bottom:0) grows with bar height. */
+.app.edit-mode .topbar {
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: flex-start;
+  row-gap: 6px;
+  /* height:auto from wrapped rows; backdrop covers via bottom:0 */
+}
+
+/* Content-sized: do not steal width from tools+Fertig via equal flex-grow. */
+.app.edit-mode .topbar .top-left,
+.app.edit-mode .topbar .top-left.brand {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  row-gap: 4px;
+  gap: 4px;
+}
+
+.app.edit-mode .topbar .top-actions {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  /* Keep Fertig beside edit-tools; let .topbar wrap the whole cluster if needed. */
+  flex-wrap: nowrap;
+  align-items: center;
+  align-content: flex-start;
+  justify-content: flex-end;
+  row-gap: 4px;
+  gap: 4px;
+}
+
+/* Tool strip may wrap internally; must not grow to push Fertig onto the next line. */
+.app.edit-mode .topbar .edit-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: flex-start;
+  row-gap: 4px;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  flex: 0 1 auto;
+  margin-right: 4px;
+}
+
+.app.edit-mode .topbar .fertig-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* Keep segmented groups intact as single wrap units */
+.app.edit-mode .topbar .tool-dual,
+.app.edit-mode .topbar .tool-triple,
+.app.edit-mode .topbar .tool-quad {
+  flex: 0 0 auto;
+}
+
+/* Hit targets / stacking above growing ::before blur bar */
+.app.edit-mode .topbar .top-left,
+.app.edit-mode .topbar .top-actions,
+.app.edit-mode .topbar .brand,
+.app.edit-mode .topbar .edit-tools,
+.app.edit-mode .topbar .btn {
+  position: relative;
+  z-index: 1;
+}
+
+
+/* ---- v1.69: Editor Chrome-Leiste oben/unten umschalten --------------------
+   Button rechts neben Stückliste (nur Edit-Modus). Klasse .chrome-bar-bottom
+   am #app verschiebt die gesamte .topbar inkl. ::before Backdrop/Blur nach
+   unten; Safe-Area unten. Temporär — Fertig/Viewer setzt zurück auf oben. */
+.chrome-pos-btn { display: none; }
+.app.edit-mode .chrome-pos-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #f0f0f0;
+}
+.app.edit-mode.chrome-bar-bottom .chrome-pos-btn {
+  /* pressed / at-bottom visual */
+}
+
+.app.edit-mode.chrome-bar-bottom .topbar {
+  top: auto;
+  bottom: 0;
+  /* Statusleisten-Inset entfällt unten; Home-Indikator / Safe-Area unten */
+  padding-top: 8px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  /* wrap rows pack toward the top of the bottom strip (above safe-area) */
+  align-content: flex-start;
+}
+
+/* Backdrop (::before top/bottom:0) moves with the bar automatically.
+   Explicit bottom anchoring keeps blur strip covering the bottom chrome. */
+.app.edit-mode.chrome-bar-bottom .topbar::before {
+  top: 0;
+  bottom: 0;
+}
+
+/* Seitenanzeige über der unteren Chrome-Leiste, nicht darunter verdeckt */
+.app.edit-mode.chrome-bar-bottom .page-indicator {
+  bottom: calc(max(8px, env(safe-area-inset-bottom, 0px)) + 52px);
+}
+
+
+/* ---- v1.71: Änderungsprotokoll ---- */
+.modal-changelog {
+  width: min(560px, 94vw);
+  max-height: min(80vh, 720px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 16px 14px;
+}
+.modal-changelog .modal-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.changelog-pre {
+  margin: 0;
+  flex: 1 1 auto;
+  min-height: 160px;
+  max-height: min(52vh, 480px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0c1018;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.changelog-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+
+/* ---- v1.73: Initialen (gerätelokal) ---- */
+.drawer-nick-hint {
+  margin-left: auto;
+  opacity: 0.75;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.modal-nickname {
+  width: min(420px, 94vw);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 16px 14px;
+}
+.modal-nickname .modal-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.nickname-hint {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  opacity: 0.9;
+}
+.nickname-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.nickname-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0c1018;
+  color: var(--text);
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  outline: none;
+}
+.nickname-input:focus {
+  border-color: #5b9fd4;
+  box-shadow: 0 0 0 2px rgba(91, 159, 212, 0.35);
+}
+.nickname-actions {
+  justify-content: flex-end;
+  margin-top: 4px;
+}

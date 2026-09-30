@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Full-bleed magenta; OS/maskable apply their own squircle -->
+  <rect width="512" height="512" fill="#dd007a"/>
+  <!-- Slightly rotated landscape page — sized to ~78% of canvas (matches Bestückungsplan weight) -->
+  <g transform="rotate(-4 256 256)">
+    <!-- Page body -->
+    <rect x="56" y="96" width="400" height="320" rx="28" fill="#ffffff"/>
+    <!-- Soft top binding bar -->
+    <rect x="88" y="118" width="336" height="28" rx="10" fill="#f7c4df"/>
+    <!-- 2×2 photo grid -->
+    <rect x="88" y="164" width="168" height="112" rx="14" fill="#f7c4df" stroke="#dd007a" stroke-width="12"/>
+    <rect x="276" y="164" width="148" height="112" rx="14" fill="#f7c4df" stroke="#dd007a" stroke-width="12"/>
+    <rect x="88" y="292" width="148" height="100" rx="14" fill="#f7c4df" stroke="#dd007a" stroke-width="12"/>
+    <rect x="256" y="292" width="168" height="100" rx="14" fill="#f7c4df" stroke="#dd007a" stroke-width="12"/>
+    <!-- Camera mark in top-left cell -->
+    <rect x="128" y="192" width="72" height="48" rx="9" fill="none" stroke="#dd007a" stroke-width="10"/>
+    <circle cx="164" cy="216" r="15" fill="none" stroke="#dd007a" stroke-width="9"/>
+    <circle cx="188" cy="200" r="6" fill="#dd007a"/>
+  </g>
+</svg>
