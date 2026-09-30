@@ -60,7 +60,7 @@
   }
 
   function makeLeaf(photo) {
-    return { type: 'leaf', id: uid('l'), photo: clonePhoto(photo), caption: '', captionX: 0.05, captionY: 0.78, variantId: null };
+    return { type: 'leaf', id: uid('l'), photo: clonePhoto(photo), caption: '', captionShort: '', captionX: 0.05, captionY: 0.78, variantId: null };
   }
 
   function makeIndexRow(text, targetPage) {
@@ -168,12 +168,29 @@
     return isFixedPage(page) || isVariantenPage(page);
   }
 
+  /** v1.91: Von der Varianten-Seite nur per Varianten-Foto weiter (nicht Wischen/Pfeile). */
+  function variantenPageExitLocked() {
+    return isVariantenPage(currentPage());
+  }
+
+
   /* ---- v1.85: Produktvarianten ------------------------------------------------
      Seite kind:"varianten" als Bookend vor dem Index. Zellen = Foto + Bezeichnung.
      Layout-Seiten: variantScope "all"|variantId, pageGroupId für Spezialisierungen.
      Viewer filtert auf gemeinsame + aktive Variante; Editor zeigt alle Seiten. */
   function isVariantenPage(page) {
     return !!(page && page.kind === 'varianten');
+  }
+
+  /** v1.91: Erkennung auch wenn .beak die Bookend-Seite ohne kind:"varianten"
+      gespeichert hat (z. B. als layout mit Titel „Varianten“) — sonst würde
+      ensureBookends eine leere Varianten-Seite davor schieben. */
+  function looksLikeVariantenPage(page) {
+    if (!page || typeof page !== 'object') return false;
+    if (page.kind === 'varianten') return true;
+    if (page.kind === 'index' || page.kind === 'fehler') return false;
+    const title = (typeof page.title === 'string') ? page.title.trim() : '';
+    return title === 'Varianten';
   }
 
   function makeVariantenPage() {
@@ -205,6 +222,25 @@
 
   function leafCaption(leaf) {
     return leaf && typeof leaf.caption === 'string' ? leaf.caption : '';
+  }
+
+  /** v1.91: Kurzname (Kürzel) der Variante – Zelle speichert captionShort. */
+  function leafCaptionShort(leaf) {
+    return leaf && typeof leaf.captionShort === 'string' ? leaf.captionShort : '';
+  }
+
+  /** Anzeige in beengter UI (Varianten-Leiste): Kürzel, sonst voller Name. */
+  function variantShortLabel(v) {
+    if (!v) return '';
+    const k = (typeof v.kuerzel === 'string') ? v.kuerzel.trim() : '';
+    if (k) return k;
+    return (typeof v.label === 'string' && v.label) ? v.label : '';
+  }
+
+  /** Voller Name für Dialoge/Stückliste. */
+  function variantFullLabel(v) {
+    if (!v) return '';
+    return (typeof v.label === 'string' && v.label) ? v.label : '';
   }
 
   /** v1.87: relative Caption-Position (0–1) in der Fotozelle; Default unten links. */
@@ -274,7 +310,7 @@
 
     const startDrag = (e) => {
       if (!state.editMode) return;
-      if (e.target.closest('.variant-caption-input')) return;
+      if (e.target.closest('.variant-caption-input') || e.target.closest('.variant-kuerzel-input')) return;
       if (e.button != null && e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
@@ -310,7 +346,8 @@
         leaf.variantId = id;
       }
       seen.add(id);
-      out.push({ id: id, label: label, leafId: leaf.id });
+      const kuerzel = String(leafCaptionShort(leaf) || '').trim();
+      out.push({ id: id, label: label, kuerzel: kuerzel, leafId: leaf.id });
     }
     return out;
   }
@@ -324,6 +361,7 @@
       return {
         id: v.id,
         label: v.label,
+        kuerzel: v.kuerzel || '',
         leafId: v.leafId,
         stuecklisteFile: (old && old.stuecklisteFile) || ('source/Stueckliste-' + v.id + '.pdf'),
       };
@@ -682,7 +720,8 @@
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'btn touch block variant-pick-item';
-        b.textContent = v.label;
+        b.textContent = variantShortLabel(v) || v.label;
+        if (v.kuerzel && v.label && v.kuerzel !== v.label) b.title = v.label;
         /* v1.89: bereits aktive Variante ausgegraut / nicht wählbar */
         if (state.activeVariantId && v.id === state.activeVariantId) {
           b.disabled = true;
@@ -738,7 +777,7 @@
     const statusWrap = document.getElementById('variantBarStatus');
     if (activeEl) {
       const av = state.activeVariantId ? variantById(state.activeVariantId) : null;
-      activeEl.textContent = av ? ('Aktiv: ' + av.label) : 'Keine Variante aktiv';
+      activeEl.textContent = av ? ('Aktiv: ' + variantShortLabel(av)) : 'Keine Variante aktiv';
       activeEl.hidden = !av;
     }
     if (statusWrap) {
@@ -755,7 +794,7 @@
 
     if (!onLayout) {
       if (info) {
-        info.textContent = 'Varianten: ' + variants.map((v) => v.label).join(', ');
+        info.textContent = 'Varianten: ' + variants.map((v) => variantShortLabel(v)).join(', ');
         info.classList.remove('is-multi');
       }
       if (addBtn) addBtn.hidden = true;
@@ -791,7 +830,7 @@
     } else if (scope !== 'all') {
       const v = variantById(scope);
       if (info) {
-        info.textContent = 'Nur für Variante „' + (v ? v.label : scope) + '“';
+        info.textContent = 'Nur für Variante „' + (v ? variantShortLabel(v) : scope) + '“';
         info.classList.remove('is-multi');
       }
       if (statusWrap) statusWrap.classList.remove('is-multi');
@@ -1058,30 +1097,57 @@
       }
     }
 
-    /* v1.85: Varianten-Seite als erstes Bookend; Index danach */
-    let variantenPage = null;
+    /* v1.85: Varianten-Seite als erstes Bookend; Index danach
+       v1.91: vorhandene Varianten-Seite wiederverwenden (auch Titel-Recover);
+       bei Duplikat (leeres kind:varianten + befüllte Layout-„Varianten“) Inhalt bevorzugen;
+       keine zweite leere Bookend-Seite; kein automatisches Blank-Layout. */
+    const variantenCandidates = [];
     let indexSrc = null;
     for (const p of list) {
       if (!p) continue;
-      if (isVariantenPage(p) && !variantenPage) variantenPage = p;
+      if (looksLikeVariantenPage(p)) variantenCandidates.push(p);
       if (isIndexPage(p) && !indexSrc) indexSrc = p;
     }
+    function variantenCandidateScore(pg) {
+      if (!pg || !pg.root) return 0;
+      let score = (pg.kind === 'varianten') ? 1 : 0;
+      const walk = (c) => {
+        if (!c) return;
+        if (c.type === 'leaf') {
+          if (c.photo) score += 4;
+          if (typeof c.caption === 'string' && c.caption.trim()) score += 2;
+          return;
+        }
+        walk(c.a);
+        walk(c.b);
+      };
+      walk(pg.root);
+      return score;
+    }
+    let variantenPage = null;
+    if (variantenCandidates.length) {
+      variantenPage = variantenCandidates.slice().sort((a, b) =>
+        variantenCandidateScore(b) - variantenCandidateScore(a)
+      )[0];
+    }
     variantenPage = normalizeVariantenPage(variantenPage || makeVariantenPage());
+    const variantenId = variantenPage && variantenPage.id;
     const indexPage = normalizeIndexPage(indexSrc || makeIndexPage());
 
     const middle = [];
     for (let i = 0; i < list.length; i++) {
       const p = list[i];
       if (!p) continue;
-      if (isVariantenPage(p) || isIndexPage(p)) continue;
+      /* Alle Varianten-Bookends (echt oder Titel-Recover) sowie Index überspringen */
+      if (looksLikeVariantenPage(p) || isVariantenPage(p) || isIndexPage(p)) continue;
+      if (variantenId && p.id === variantenId) continue;
       if (isFehlerPage(p)) continue; // Canonical fehler at end
       if (!p.pageGroupId) p.pageGroupId = p.id || uid('g');
       if (!p.variantScope) p.variantScope = 'all';
       middle.push(p);
     }
-    if (middle.length === 0) {
-      middle.push(makePage());
-    }
+    /* v1.91: Kein makePage() mehr hier — sonst entsteht beim Öffnen/Migraten
+       eine Extra-Leerseite. Neue Projekte bekommen die Layout-Seite über makeDocument(). */
 
     const fehlerPage = normalizeFehlerPage({
       id: fehlerId || uid('p'),
@@ -1533,7 +1599,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.90';
+  const APP_VERSION = '1.91';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -3495,6 +3561,11 @@
          damit Fingerzittern die Wisch-Geste nicht killt. trackDrag bei Achse 'v'
          NICHT nullen – sonst stirbt der Gesture und letzte→vorletzte greift nicht. */
       trackDrag.axis = Math.abs(dx) >= Math.abs(dy) * hBias ? 'h' : 'v';
+      /* v1.91: Auf Varianten-Seite kein horizontales Seiten-Wischen */
+      if (trackDrag.axis === 'h' && variantenPageExitLocked()) {
+        trackDrag.axis = 'v';
+        return;
+      }
       if (trackDrag.axis === 'v') {
         /* Vertikal: Gesture behalten, aber Seite nicht bewegen */
         return;
@@ -3506,6 +3577,7 @@
       /* v1.27: Achsen-Upgrade – einmal 'v' gelockt killte letzte→vorletzte auf dem iPad.
          Wenn |dx| klar horizontal wird, auf 'h' umschalten und Seiten-Drag fortsetzen. */
       if (Math.abs(dx) >= 20 && Math.abs(dx) > Math.abs(dy) * Math.min(0.9, hBias)) {
+        if (variantenPageExitLocked()) return;
         trackDrag.axis = 'h';
         trackDrag.moved = true;
         if (!state.editMode) hideViewerChrome();
@@ -3774,8 +3846,13 @@
     }
 
     navTarget = clamp(navTarget, 0, pageCountNav - 1);
-    const target = realIndexFromNavIndex(navTarget);
+    let target = realIndexFromNavIndex(navTarget);
     const prev = state.doc.pageIndex;
+    /* v1.91: Varianten-Seite nicht per Wischen verlassen */
+    if (isVariantenPage(state.doc.pages[prev]) && target !== prev) {
+      target = prev;
+      navTarget = navIndexOfPageIndex(prev);
+    }
     trackDragDidPageSwipe = target !== prev;
     snapToIndex(target, true);
     if (target !== prev) {
@@ -4116,9 +4193,12 @@
           if (state.editMode) {
             const grip = document.createElement('div');
             grip.className = 'variant-caption-drag';
-            grip.textContent = '⋮⋮ Verschieben';
+            /* v1.91: kein ⋮⋮ / Sechs-Punkt-Griff — nur Text „Verschieben“ */
+            grip.textContent = 'Verschieben';
             grip.setAttribute('aria-hidden', 'true');
             capWrap.appendChild(grip);
+            const row = document.createElement('div');
+            row.className = 'variant-caption-row';
             const inp = document.createElement('input');
             inp.type = 'text';
             inp.className = 'variant-caption-input';
@@ -4141,11 +4221,45 @@
               updateVariantBar();
               if (typeof historyCommit === 'function') historyCommit();
             });
-            capWrap.appendChild(inp);
+            const kWrap = document.createElement('label');
+            kWrap.className = 'variant-kuerzel-wrap';
+            const kLab = document.createElement('span');
+            kLab.className = 'variant-kuerzel-label';
+            kLab.textContent = 'Kürzel';
+            const kInp = document.createElement('input');
+            kInp.type = 'text';
+            kInp.className = 'variant-kuerzel-input';
+            kInp.placeholder = 'z. B. A';
+            kInp.maxLength = 12;
+            kInp.value = leafCaptionShort(cell);
+            kInp.setAttribute('aria-label', 'Kürzel der Variante');
+            kInp.addEventListener('pointerdown', (e) => e.stopPropagation());
+            kInp.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+            kInp.addEventListener('input', () => {
+              cell.captionShort = kInp.value;
+              if (!cell.variantId) cell.variantId = uid('v');
+              syncVariantsFromPage();
+              updateVariantBar();
+              scheduleHistoryCheck(700);
+            });
+            kInp.addEventListener('change', () => {
+              cell.captionShort = kInp.value.trim();
+              kInp.value = cell.captionShort;
+              syncVariantsFromPage();
+              updateVariantBar();
+              if (typeof historyCommit === 'function') historyCommit();
+            });
+            kWrap.appendChild(kLab);
+            kWrap.appendChild(kInp);
+            row.appendChild(inp);
+            row.appendChild(kWrap);
+            capWrap.appendChild(row);
           } else {
             const lab = document.createElement('div');
             lab.className = 'variant-caption-label';
             lab.textContent = capText;
+            const ks = String(leafCaptionShort(cell) || '').trim();
+            if (ks) lab.textContent = capText + ' (' + ks + ')';
             capWrap.appendChild(lab);
           }
           leaf.appendChild(capWrap);
@@ -4163,7 +4277,7 @@
             const onPick = (e) => {
               if (trackDragDidPageSwipe) return;
               /* Caption/Kamera: nicht starten (außer Viewer-Caption hat pointer-events:none) */
-              if (e.target.closest('.variant-caption-input') || e.target.closest('.variant-caption-drag')) return;
+              if (e.target.closest('.variant-caption-input') || e.target.closest('.variant-kuerzel-input') || e.target.closest('.variant-caption-drag') || e.target.closest('.variant-kuerzel-wrap')) return;
               if (e.target.closest('.cell-kamera-wrap')) return;
               if (state.editMode && (state.splitTool || state.photoMoveMode || state.photoRotateMode || state.teleportMode)) return;
               e.stopPropagation();
@@ -6126,6 +6240,7 @@
     const aLeaf = makeLeaf(photo);
     /* v1.87: Varianten-Metadaten (Name/Position/Id) auf der Foto-Seite behalten */
     if (typeof leaf.caption === 'string') aLeaf.caption = leaf.caption;
+    if (typeof leaf.captionShort === 'string') aLeaf.captionShort = leaf.captionShort;
     if (typeof leaf.captionX === 'number' && isFinite(leaf.captionX)) aLeaf.captionX = leaf.captionX;
     if (typeof leaf.captionY === 'number' && isFinite(leaf.captionY)) aLeaf.captionY = leaf.captionY;
     if (typeof leaf.variantId === 'string' && leaf.variantId) aLeaf.variantId = leaf.variantId;
@@ -7795,6 +7910,7 @@
       }
       const leafOut = { type: 'leaf', id: cell.id, photo: outPhoto };
       if (typeof cell.caption === 'string' && cell.caption) leafOut.caption = cell.caption;
+      if (typeof cell.captionShort === 'string' && cell.captionShort) leafOut.captionShort = cell.captionShort;
       if (typeof cell.captionX === 'number' && isFinite(cell.captionX)) leafOut.captionX = cell.captionX;
       if (typeof cell.captionY === 'number' && isFinite(cell.captionY)) leafOut.captionY = cell.captionY;
       if (typeof cell.variantId === 'string' && cell.variantId) leafOut.variantId = cell.variantId;
@@ -8290,6 +8406,7 @@
       variants: variantsList().map((v) => ({
         id: v.id,
         label: v.label,
+        kuerzel: (typeof v.kuerzel === 'string' && v.kuerzel) ? v.kuerzel : '',
         leafId: v.leafId,
         stuecklisteFile: v.stuecklisteFile || ('source/Stueckliste-' + v.id + '.pdf'),
       })),
@@ -8344,6 +8461,7 @@
         id: cell.id || uid('l'),
         photo: normalizePhoto(cell.photo),
         caption: typeof cell.caption === 'string' ? cell.caption : '',
+        captionShort: typeof cell.captionShort === 'string' ? cell.captionShort : '',
         captionX: pos.x,
         captionY: pos.y,
         variantId: (typeof cell.variantId === 'string' && cell.variantId) ? cell.variantId : null,
@@ -8366,7 +8484,7 @@
     const pages = [];
     for (const p of data.pages) {
       if (!p || typeof p !== 'object') return false;
-      if (p.kind === 'varianten') {
+      if (p.kind === 'varianten' || looksLikeVariantenPage(p)) {
         pages.push(normalizeVariantenPage(p));
         continue;
       }
@@ -8670,6 +8788,7 @@
     }
     const zip = new JSZip();
     const photoEntries = [];
+    try { syncVariantsFromPage(); } catch (_) {}
 
     function slimCell(cell) {
       if (cell.type === 'leaf') {
@@ -8699,7 +8818,13 @@
             rot: photo.rot,
           };
         }
-        return { type: 'leaf', id: cell.id, photo: outPhoto };
+        const leafOut = { type: 'leaf', id: cell.id, photo: outPhoto };
+        if (typeof cell.caption === 'string' && cell.caption) leafOut.caption = cell.caption;
+        if (typeof cell.captionShort === 'string' && cell.captionShort) leafOut.captionShort = cell.captionShort;
+        if (typeof cell.captionX === 'number' && isFinite(cell.captionX)) leafOut.captionX = cell.captionX;
+        if (typeof cell.captionY === 'number' && isFinite(cell.captionY)) leafOut.captionY = cell.captionY;
+        if (typeof cell.variantId === 'string' && cell.variantId) leafOut.variantId = cell.variantId;
+        return leafOut;
       }
       return {
         type: 'split',
@@ -8717,6 +8842,16 @@
       savedAt: new Date().toISOString(),
       pageIndex: state.doc.pageIndex,
       pages: state.doc.pages.map((p) => {
+        /* v1.91: Varianten-Bookend korrekt speichern (vorher fälschlich als layout →
+           beim Öffnen leere neue Varianten-Seite + alte Seite als Extra-Layout). */
+        if (isVariantenPage(p)) {
+          return {
+            id: p.id,
+            kind: 'varianten',
+            title: p.title || 'Varianten',
+            root: slimCell(p.root),
+          };
+        }
         if (isIndexPage(p)) {
           return {
             id: p.id,
@@ -8748,6 +8883,8 @@
           id: p.id,
           kind: 'layout',
           root: slimCell(p.root),
+          pageGroupId: pageGroupIdOf(p),
+          variantScope: pageVariantScope(p),
           annotations: (p.annotations || []).map((a) => {
             if (!a || a.type !== 'photoClipboard') return { ...a };
             const photo = normalizePhoto(a.photo);
@@ -8787,11 +8924,24 @@
             };
           }),
         };
+        if (p.highlight) {
+          layoutOut.highlight = true;
+          const ids = normalizeHighlightLeafIds(p);
+          if (ids.length) layoutOut.highlightLeafIds = ids.slice();
+        }
         const embed = normalizeFehlerEmbed(p.fehlerEmbed);
         if (embed) layoutOut.fehlerEmbed = { rowIds: embed.rowIds.slice() };
         return layoutOut;
       }),
       changeLog: normalizeChangeLog(state.changeLog),
+      variants: variantsList().map((v) => ({
+        id: v.id,
+        label: v.label,
+        kuerzel: (typeof v.kuerzel === 'string' && v.kuerzel) ? v.kuerzel : '',
+        leafId: v.leafId,
+        stuecklisteFile: v.stuecklisteFile || ('source/Stueckliste-' + v.id + '.pdf'),
+      })),
+      activeVariantId: state.activeVariantId || null,
     };
     if (state.stueckliste && state.stueckliste.dataUrl) {
       project.stueckliste = {
@@ -11249,13 +11399,15 @@
     }
   });
 
-  /* Page navigation: → next, ← previous — v1.89: über getNavPages() wie Wischen */
+  /* Page navigation: → next, ← previous — v1.89: über getNavPages() wie Wischen
+     v1.91: auf Varianten-Seite keine Pfeil-Navigation (nur Foto-Tipp → Arbeitsschritte). */
   window.addEventListener('keydown', (e) => {
     if (e.defaultPrevented) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (isTypingTarget(e.target) || isBlockingOverlayOpen()) return;
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
     if (isWelcomeOpen && isWelcomeOpen()) return;
+    if (variantenPageExitLocked()) return;
     const nav = getNavPages();
     if (!nav.length) return;
     const navIdx = navIndexOfPageIndex(state.doc.pageIndex);

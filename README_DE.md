@@ -2,7 +2,15 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.90
+**Version:** 1.91
+
+## Neu in 1.91
+
+- **Öffnen/.beak:** Ursache behoben: Speichern als `.beak` schrieb die Varianten-Seite fälschlich als `kind:"layout"` (ohne Captions) → beim Öffnen entstand eine leere neue Varianten-Seite. Jetzt korrekt `kind:"varianten"` inkl. Name/Kürzel. Zusätzlich Recover für schon betroffene Dateien (Titel „Varianten“ / Inhalts-Duplikat). Migration idempotent; kein automatisches Blank-Layout in `ensureBookends`.
+- **Varianten-Seite:** Verlassen nicht per Wischen oder Pfeiltasten — Variante tippen (→ Arbeitsschritte). Toolbar (Übersicht, Index, …) weiter nutzbar.
+- **Kürzel:** Feld neben dem Varianten-Namen (`captionShort` in der Zelle / `kuerzel` in `project.json` → `variants[]`). Untere Leiste und kompakte UI zeigen das Kürzel (Fallback: voller Name). Dialoge/Stückliste weiter mit vollem Namen.
+- **Verschieben:** Griff ohne ⋮⋮ / Sechs-Punkt-Icon — nur noch Text „Verschieben“.
+- **Service Worker:** Cache `anweisungen-shell-v1.91` und `?v=1.91`.
 
 ## Neu in 1.90
 
