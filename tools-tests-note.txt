@@ -1,0 +1,2 @@
+Playwright-Smoke für v1.18: /workspace/v118/smoke118.mjs (Ergebnis smoke-result.json).
+Vollsuite aus Handoff tools/tests/ bei Bedarf nachziehen.

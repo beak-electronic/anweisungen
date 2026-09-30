@@ -3909,3 +3909,143 @@ html.orient-portrait.app-h-fixed .page-viewport {
   height: 100% !important;
   max-height: 100% !important;
 }
+
+
+/* ==== v1.85 Varianten ===================================================== */
+.varianten-stage .varianten-leaf {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.varianten-stage .varianten-leaf > .cell-photo,
+.varianten-stage .varianten-leaf > .cell-live-video {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+}
+.varianten-stage .varianten-leaf > .cell-kamera-wrap {
+  /* Kamera-Chrome bleibt über dem Foto */
+}
+.variant-caption-wrap {
+  flex: 0 0 auto;
+  width: 100%;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.55);
+}
+.variant-caption-wrap.is-edit {
+  background: #1a1f27;
+  border-top: 2px solid #000;
+  box-shadow: inset 0 0 0 1px #000;
+}
+.variant-caption-input {
+  width: 100%;
+  border: 2px solid #000;
+  border-radius: 6px;
+  background: #fff;
+  color: #111;
+  font: 700 0.95rem/1.25 system-ui, sans-serif;
+  padding: 6px 8px;
+  box-sizing: border-box;
+}
+.variant-caption-label {
+  color: #fff;
+  font: 700 0.95rem/1.25 system-ui, sans-serif;
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+}
+.app:not(.edit-mode) .varianten-stage .variant-caption-wrap.is-view {
+  border: none;
+  box-shadow: none;
+}
+.app:not(.edit-mode) .varianten-leaf.variant-tap-target {
+  cursor: pointer;
+}
+.app:not(.edit-mode) .varianten-leaf.variant-tap-target:active {
+  outline: 3px solid var(--accent, #dd007a);
+}
+
+.variant-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 48;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  background: rgba(12, 14, 18, 0.92);
+  border-top: 1px solid var(--border, #2e3644);
+  pointer-events: auto;
+}
+.variant-bar[hidden] { display: none !important; }
+.variant-bar-info {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text, #e8ecf1);
+  margin-right: 4px;
+}
+.variant-bar-info.is-multi {
+  color: #ef4444;
+  font-weight: 800;
+}
+.variant-active-label {
+  font-size: 0.82rem;
+  color: var(--accent, #dd007a);
+  font-weight: 700;
+}
+.variant-bar .btn.sm {
+  min-height: 34px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.app.variant-bar-visible .page {
+  /* Platz für die untere Leiste – Seite bleibt nutzbar */
+  padding-bottom: 52px;
+}
+
+.variant-pick-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0,0,0,0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.variant-pick-panel {
+  background: var(--panel, #1a1f27);
+  border: 1px solid var(--border, #2e3644);
+  border-radius: 12px;
+  padding: 16px;
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.55);
+}
+.variant-pick-title {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+}
+.variant-pick-item {
+  text-align: left;
+  background: #222833;
+}
+
+/* Varianten-Seite: Layout-Werkzeuge (Annotationen) aus – nur Foto + Text + Unterteilung */
+.app.varianten-page-active.edit-mode .layout-only-tool,
+.app.varianten-page-active.edit-mode #toolRect,
+.app.varianten-page-active.edit-mode #toolCircle,
+.app.varianten-page-active.edit-mode #toolArrow,
+.app.varianten-page-active.edit-mode #toolText,
+.app.varianten-page-active.edit-mode #toolTextSm,
+.app.varianten-page-active.edit-mode #toolBeakNr,
+.app.varianten-page-active.edit-mode #fehlerBtn {
+  display: none !important;
+}

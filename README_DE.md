@@ -2,7 +2,19 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.84
+**Version:** 1.86
+
+## Neu in 1.86
+
+- **Varianten-Leiste:** Der Button „Zwischen Varianten wechseln“ erscheint nur noch, wenn für die aktuelle Seite wirklich mehrere Optionen existieren (mehrere Spezialseiten, oder gemeinsame Seite plus mindestens eine Spezialisierung). Bei nur einer Spezial-/Exklusivseite bleibt er ausgeblendet. „+ Variante“ und der rote Hinweis „Mehrere Varianten…“ unverändert; bei nur einer Variante weiterhin keine untere Leiste.
+
+## Neu in 1.85
+
+- **Varianten-Seite:** Neue erste Folie vor „Arbeitsschritte“. Zellen wie auf Layout-Seiten (Unterteilung), je Zelle Foto **und** Pflicht-Bezeichnung darunter. Im Viewer steht der Text ohne schwarzen Rahmen; Rahmen nur im Editor. Tippen auf ein Foto öffnet diese Variante.
+- **Stückliste je Variante:** Jede Variante hat ihre eigene Stückliste. Auf der Varianten-Seite sind Stückliste-Button und Menüeintrag ausgeblendet. Abgleich zählt BEAK-Nr. nur aus gemeinsamen Seiten + Seiten der aktiven Variante.
+- **Untere Varianten-Leiste (Editor, Querformat, ≥ 2 Varianten):** „Diese Seite gilt für alle Varianten“ + „+ Variante“; nach Spezialisierung rot „Mehrere Varianten für diese Seite verfügbar“ + Wechseln; zusätzlich „Nur für eine Variante“ für exklusive Seiten (im Viewer bei anderen Varianten übersprungen).
+- **Ein Bild:** Bei nur einer Varianten-Zelle erscheint die untere Leiste nicht.
+- **Kompatibilität:** Alte `.beak` ohne Varianten-Seite bekommen automatisch eine leere Varianten-Folie; bisherige Stückliste bleibt erhalten (`source/Stueckliste.pdf`).
 
 ## Neu in 1.84
 

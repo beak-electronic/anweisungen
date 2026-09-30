@@ -60,7 +60,7 @@
   }
 
   function makeLeaf(photo) {
-    return { type: 'leaf', id: uid('l'), photo: clonePhoto(photo) };
+    return { type: 'leaf', id: uid('l'), photo: clonePhoto(photo), caption: '', variantId: null };
   }
 
   function makeIndexRow(text, targetPage) {
@@ -99,7 +99,17 @@
   }
 
   function makePage() {
-    return { id: uid('p'), kind: 'layout', root: makeLeaf(null), annotations: [], highlight: false, highlightLeafIds: [] };
+    const id = uid('p');
+    return {
+      id: id,
+      kind: 'layout',
+      root: makeLeaf(null),
+      annotations: [],
+      highlight: false,
+      highlightLeafIds: [],
+      pageGroupId: id,
+      variantScope: 'all', /* v1.85: gilt standardmäßig für alle Varianten */
+    };
   }
 
   function makeFehlerRow(date, description, cause, remedy, sourcePageId) {
@@ -134,7 +144,11 @@
   }
 
   function makeDocument() {
-    return { pages: [makeIndexPage(), makePage(), makeFehlerPage()], pageIndex: 0 };
+    return {
+      pages: [makeVariantenPage(), makeIndexPage(), makePage(), makeFehlerPage()],
+      pageIndex: 0,
+      variants: [],
+    };
   }
 
   function isIndexPage(page) {
@@ -146,7 +160,454 @@
   }
 
   function isFixedPage(page) {
+    /* Index/Fehler: kein Layout. Varianten-Seite erlaubt Unterteilung + Fotos, aber keine Annotationen. */
     return isIndexPage(page) || isFehlerPage(page);
+  }
+
+  function isNonLayoutPage(page) {
+    return isFixedPage(page) || isVariantenPage(page);
+  }
+
+  /* ---- v1.85: Produktvarianten ------------------------------------------------
+     Seite kind:"varianten" als Bookend vor dem Index. Zellen = Foto + Bezeichnung.
+     Layout-Seiten: variantScope "all"|variantId, pageGroupId für Spezialisierungen.
+     Viewer filtert auf gemeinsame + aktive Variante; Editor zeigt alle Seiten. */
+  function isVariantenPage(page) {
+    return !!(page && page.kind === 'varianten');
+  }
+
+  function makeVariantenPage() {
+    return {
+      id: uid('p'),
+      kind: 'varianten',
+      title: 'Varianten',
+      root: makeLeaf(null),
+      annotations: [],
+    };
+  }
+
+  function normalizeVariantenPage(p) {
+    const root = (p && p.root && validateCell(p.root)) ? normalizeCellTree(p.root) : makeLeaf(null);
+    return {
+      id: (p && typeof p.id === 'string') ? p.id : uid('p'),
+      kind: 'varianten',
+      title: (p && typeof p.title === 'string' && p.title) ? p.title : 'Varianten',
+      root: root,
+      annotations: [],
+    };
+  }
+
+  function getVariantenPage() {
+    const pages = state.doc && state.doc.pages;
+    if (!pages || !pages.length) return null;
+    return isVariantenPage(pages[0]) ? pages[0] : null;
+  }
+
+  function leafCaption(leaf) {
+    return leaf && typeof leaf.caption === 'string' ? leaf.caption : '';
+  }
+
+  /** Varianten aus der Varianten-Seite (Zellen mit ausgefüllter Bezeichnung). */
+  function collectVariantsFromPage() {
+    const vp = getVariantenPage();
+    if (!vp || !vp.root) return [];
+    const leaves = leafIdsInOrder(vp.root, []);
+    const out = [];
+    const seen = new Set();
+    for (const leaf of leaves) {
+      const label = String(leafCaption(leaf) || '').trim();
+      if (!label) continue;
+      let id = (typeof leaf.variantId === 'string' && leaf.variantId) ? leaf.variantId : null;
+      if (!id || seen.has(id)) {
+        id = uid('v');
+        leaf.variantId = id;
+      }
+      seen.add(id);
+      out.push({ id: id, label: label, leafId: leaf.id });
+    }
+    return out;
+  }
+
+  function syncVariantsFromPage() {
+    const list = collectVariantsFromPage();
+    const prev = Array.isArray(state.doc.variants) ? state.doc.variants : [];
+    const prevById = new Map(prev.map((v) => [v.id, v]));
+    state.doc.variants = list.map((v) => {
+      const old = prevById.get(v.id);
+      return {
+        id: v.id,
+        label: v.label,
+        leafId: v.leafId,
+        stuecklisteFile: (old && old.stuecklisteFile) || ('source/Stueckliste-' + v.id + '.pdf'),
+      };
+    });
+    // Stücklisten-Map bereinigen (nur noch existierende Varianten behalten)
+    if (state.variantStuecklisten && typeof state.variantStuecklisten === 'object') {
+      const keep = new Set(list.map((v) => v.id));
+      for (const k of Object.keys(state.variantStuecklisten)) {
+        if (!keep.has(k)) delete state.variantStuecklisten[k];
+      }
+    }
+    if (state.activeVariantId && !list.some((v) => v.id === state.activeVariantId)) {
+      state.activeVariantId = list.length === 1 ? list[0].id : null;
+    }
+    return list;
+  }
+
+  function variantsList() {
+    return (state.doc && Array.isArray(state.doc.variants)) ? state.doc.variants : [];
+  }
+
+  function hasMultipleVariants() {
+    return variantsList().length >= 2;
+  }
+
+  function variantById(id) {
+    return variantsList().find((v) => v.id === id) || null;
+  }
+
+  function pageGroupIdOf(page) {
+    if (!page) return null;
+    if (typeof page.pageGroupId === 'string' && page.pageGroupId) return page.pageGroupId;
+    return page.id || null;
+  }
+
+  function pageVariantScope(page) {
+    if (!page || isFixedPage(page) || isVariantenPage(page)) return 'all';
+    const s = page.variantScope;
+    if (typeof s === 'string' && s && s !== 'all') return s;
+    return 'all';
+  }
+
+  function hasSpecialization(groupId, variantId) {
+    if (!groupId || !variantId) return false;
+    for (const p of state.doc.pages || []) {
+      if (!p || isFixedPage(p)) continue;
+      if (pageGroupIdOf(p) === groupId && pageVariantScope(p) === variantId) return true;
+    }
+    return false;
+  }
+
+  function pageVisibleInViewer(page, variantId) {
+    if (!page) return false;
+    if (isVariantenPage(page) || isIndexPage(page) || isFehlerPage(page)) return true;
+    if (!hasMultipleVariants()) return true;
+    const scope = pageVariantScope(page);
+    if (scope === 'all') {
+      if (variantId && hasSpecialization(pageGroupIdOf(page), variantId)) return false;
+      return true;
+    }
+    return !!variantId && scope === variantId;
+  }
+
+  /** Seiten in der aktuellen Navigationsreihenfolge (Viewer gefiltert, Editor alles). */
+  function getNavPages() {
+    const all = (state.doc && state.doc.pages) || [];
+    if (state.editMode || !hasMultipleVariants()) return all.slice();
+    const vid = state.activeVariantId;
+    return all.filter((p) => pageVisibleInViewer(p, vid));
+  }
+
+  function navIndexOfPageIndex(realIdx) {
+    const pages = getNavPages();
+    const page = state.doc.pages[realIdx];
+    if (!page) return 0;
+    const i = pages.indexOf(page);
+    return i >= 0 ? i : 0;
+  }
+
+  function realIndexFromNavIndex(navIdx) {
+    const pages = getNavPages();
+    const page = pages[clamp(navIdx, 0, Math.max(0, pages.length - 1))];
+    if (!page) return 0;
+    const i = state.doc.pages.indexOf(page);
+    return i >= 0 ? i : 0;
+  }
+
+  function pagesSharingGroup(groupId) {
+    return (state.doc.pages || []).filter((p) => !isFixedPage(p) && pageGroupIdOf(p) === groupId);
+  }
+
+  function getActiveVariantStueckliste() {
+    if (hasMultipleVariants() && state.activeVariantId) {
+      const m = state.variantStuecklisten || {};
+      return m[state.activeVariantId] || null;
+    }
+    return state.stueckliste;
+  }
+
+  function setActiveVariantStueckliste(rec) {
+    if (hasMultipleVariants() && state.activeVariantId) {
+      if (!state.variantStuecklisten) state.variantStuecklisten = {};
+      state.variantStuecklisten[state.activeVariantId] = rec;
+      state.stueckliste = rec; // Abgleich/UI lesen state.stueckliste
+      return;
+    }
+    state.stueckliste = rec;
+  }
+
+  function enterVariantFromLeaf(leaf) {
+    if (!leaf) return;
+    syncVariantsFromPage();
+    let id = leaf.variantId;
+    if (!id) {
+      id = uid('v');
+      leaf.variantId = id;
+      syncVariantsFromPage();
+    }
+    state.activeVariantId = id;
+    const rec = (state.variantStuecklisten && state.variantStuecklisten[id]) || null;
+    state.stueckliste = rec;
+    updateStuecklisteUi();
+    rebuildBeakUsage();
+    const label = String(leafCaption(leaf) || '').trim() || 'Variante';
+    const idx = state.doc.pages.findIndex((p) => isIndexPage(p));
+    renderAll();
+    if (idx >= 0) snapToIndex(idx, true);
+    else snapToIndex(Math.min(1, state.doc.pages.length - 1), true);
+    flash('Variante: ' + label);
+  }
+
+  function setActiveVariant(variantId, opts) {
+    opts = opts || {};
+    state.activeVariantId = variantId || null;
+    if (variantId && state.variantStuecklisten) {
+      state.stueckliste = state.variantStuecklisten[variantId] || null;
+    }
+    updateStuecklisteUi();
+    rebuildBeakUsage();
+    updateVariantBar();
+    if (opts.rerender !== false) {
+      const cur = state.doc.pageIndex;
+      renderAll();
+      snapToIndex(cur, false);
+    }
+  }
+
+  /** Dupliziert die aktuelle Layout-Seite für eine Variante (Spezialisierung). */
+  function specializeCurrentPageForVariant(variantId) {
+    const page = currentPage();
+    if (!page || isFixedPage(page)) {
+      flash('Nur Layout-Seiten können varianten-spezifisch sein', 4000, 'error');
+      return null;
+    }
+    const v = variantById(variantId);
+    if (!v) return null;
+    const group = pageGroupIdOf(page);
+    /* Existiert schon eine Spezialisierung? → dorthin wechseln */
+    const existing = (state.doc.pages || []).find(
+      (p) => !isFixedPage(p) && pageGroupIdOf(p) === group && pageVariantScope(p) === variantId
+    );
+    if (existing) {
+      setActiveVariant(variantId, { rerender: false });
+      const idx = state.doc.pages.indexOf(existing);
+      renderAll();
+      snapToIndex(idx, true);
+      flash('Variante „' + v.label + '“ – bestehende Spezialseite');
+      return existing;
+    }
+    /* Aktuelle Seite ist schon exklusiv für diese Variante */
+    if (pageVariantScope(page) === variantId) {
+      setActiveVariant(variantId);
+      flash('Seite gilt bereits nur für „' + v.label + '“');
+      return page;
+    }
+    const clone = {
+      id: uid('p'),
+      kind: 'layout',
+      root: cloneCell(page.root),
+      annotations: (page.annotations || []).map((a) => ({ ...a, id: uid('a') })),
+      highlight: !!page.highlight,
+      highlightLeafIds: page.highlight ? normalizeHighlightLeafIds(page).slice() : [],
+      pageGroupId: group,
+      variantScope: variantId,
+    };
+    if (page.fehlerEmbed) {
+      const emb = normalizeFehlerEmbed(page.fehlerEmbed);
+      if (emb) clone.fehlerEmbed = { rowIds: emb.rowIds.slice() };
+    }
+    /* Original bleibt „all“ (Standard für übrige Varianten) */
+    if (pageVariantScope(page) === 'all') {
+      page.pageGroupId = group;
+      page.variantScope = 'all';
+    }
+    const at = state.doc.pages.indexOf(page);
+    state.doc.pages.splice(at + 1, 0, clone);
+    setActiveVariant(variantId, { rerender: false });
+    renderAll();
+    snapToIndex(state.doc.pages.indexOf(clone), true);
+    if (typeof historyCommit === 'function') historyCommit();
+    flash('Spezialseite für „' + v.label + '“ angelegt');
+    return clone;
+  }
+
+  /** Neue Seite, die nur für eine Variante existiert (nicht in anderen Varianten sichtbar). */
+  function addVariantOnlyPage(variantId) {
+    const v = variantById(variantId);
+    if (!v) return;
+    stopLiveCamera();
+    state.doc.pages = ensureBookends(state.doc.pages);
+    const page = makePage();
+    page.variantScope = variantId;
+    page.pageGroupId = page.id;
+    let idx = state.doc.pageIndex + 1;
+    const last = state.doc.pages.length - 1;
+    if (last >= 0 && isFehlerPage(state.doc.pages[last])) {
+      if (idx > last) idx = last;
+      if (isFehlerPage(currentPage())) idx = last;
+    }
+    state.doc.pages.splice(idx, 0, page);
+    setActiveVariant(variantId, { rerender: false });
+    renderAll();
+    snapToIndex(idx, true);
+    if (typeof historyCommit === 'function') historyCommit();
+    flash('Neue Seite nur für „' + v.label + '“');
+  }
+
+  async function pickVariantFromList(title, variants) {
+    if (!variants || !variants.length) return null;
+    if (variants.length === 1) return variants[0].id;
+    /* Einfacher Picker über confirm-Kette / Prompt-Ersatz: Menü-Liste im Status */
+    return new Promise((resolve) => {
+      const backdrop = document.createElement('div');
+      backdrop.className = 'variant-pick-backdrop';
+      backdrop.setAttribute('role', 'dialog');
+      backdrop.setAttribute('aria-modal', 'true');
+      const panel = document.createElement('div');
+      panel.className = 'variant-pick-panel';
+      const h = document.createElement('h2');
+      h.className = 'variant-pick-title';
+      h.textContent = title || 'Variante wählen';
+      panel.appendChild(h);
+      for (const v of variants) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn touch block variant-pick-item';
+        b.textContent = v.label;
+        b.addEventListener('click', () => { cleanup(); resolve(v.id); });
+        panel.appendChild(b);
+      }
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'btn touch block';
+      cancel.textContent = 'Abbrechen';
+      cancel.addEventListener('click', () => { cleanup(); resolve(null); });
+      panel.appendChild(cancel);
+      backdrop.appendChild(panel);
+      backdrop.addEventListener('click', (e) => {
+        if (e.target === backdrop) { cleanup(); resolve(null); }
+      });
+      document.body.appendChild(backdrop);
+      function cleanup() { try { backdrop.remove(); } catch (_) {} }
+    });
+  }
+
+  function updateVariantBar() {
+    const bar = document.getElementById('variantBar');
+    if (!bar) return;
+    const info = document.getElementById('variantBarInfo');
+    const addBtn = document.getElementById('variantAddBtn');
+    const switchBtn = document.getElementById('variantSwitchBtn');
+    const onlyBtn = document.getElementById('variantOnlyBtn');
+    const activeEl = document.getElementById('variantActiveLabel');
+    syncVariantsFromPage();
+    const variants = variantsList();
+    const show = !!(state.editMode && variants.length >= 2);
+    bar.hidden = !show;
+    el.app.classList.toggle('variant-bar-visible', show);
+    if (!show) return;
+
+    const page = currentPage();
+    const onLayout = page && !isFixedPage(page);
+    const scope = onLayout ? pageVariantScope(page) : 'all';
+    const group = onLayout ? pageGroupIdOf(page) : null;
+    const siblings = group ? pagesSharingGroup(group) : [];
+    const specialized = siblings.filter((p) => pageVariantScope(p) !== 'all');
+    const multi = specialized.length >= 1 && (scope === 'all' || specialized.length >= 1) &&
+      siblings.some((p) => pageVariantScope(p) === 'all') && specialized.length >= 1;
+
+    if (activeEl) {
+      const av = state.activeVariantId ? variantById(state.activeVariantId) : null;
+      activeEl.textContent = av ? ('Aktiv: ' + av.label) : 'Keine Variante aktiv';
+      activeEl.hidden = !av;
+    }
+
+    /* v1.86: „Zwischen Varianten wechseln“ nur wenn es wirklich ≥2 Optionen
+       für die aktuelle Seite gibt (mehrere Spezialisierungen, oder Shared+≥1 Spezial
+       bei ≥2 Projektvarianten). Bei nur einer Spezial-/Exklusivseite: Button aus. */
+    const hasShared = siblings.some((p) => pageVariantScope(p) === 'all');
+    const canSwitchForPage =
+      specialized.length >= 2 ||
+      (specialized.length >= 1 && hasShared && variants.length >= 2);
+
+    if (!onLayout) {
+      if (info) {
+        info.textContent = 'Varianten: ' + variants.map((v) => v.label).join(', ');
+        info.classList.remove('is-multi');
+      }
+      if (addBtn) addBtn.hidden = true;
+      if (switchBtn) switchBtn.hidden = variants.length < 2;
+      if (onlyBtn) onlyBtn.hidden = true;
+      return;
+    }
+
+    if (addBtn) addBtn.hidden = false;
+    if (onlyBtn) onlyBtn.hidden = false;
+    if (switchBtn) switchBtn.hidden = !canSwitchForPage;
+
+    if (multi) {
+      if (info) {
+        info.textContent = 'Mehrere Varianten für diese Seite verfügbar';
+        info.classList.add('is-multi');
+      }
+    } else if (scope !== 'all') {
+      const v = variantById(scope);
+      if (info) {
+        info.textContent = 'Nur für Variante „' + (v ? v.label : scope) + '“';
+        info.classList.remove('is-multi');
+      }
+    } else {
+      if (info) {
+        info.textContent = 'Diese Seite gilt für alle Varianten';
+        info.classList.remove('is-multi');
+      }
+    }
+  }
+
+  async function onVariantAddClick() {
+    const variants = variantsList();
+    if (variants.length < 2) return;
+    const id = await pickVariantFromList('Spezialseite für welche Variante?', variants);
+    if (!id) return;
+    specializeCurrentPageForVariant(id);
+  }
+
+  async function onVariantSwitchClick() {
+    const variants = variantsList();
+    if (variants.length < 2) return;
+    const id = await pickVariantFromList('Aktive Variante wählen', variants);
+    if (!id) return;
+    setActiveVariant(id);
+    const page = currentPage();
+    if (page && !isFixedPage(page)) {
+      const group = pageGroupIdOf(page);
+      const spec = (state.doc.pages || []).find(
+        (p) => !isFixedPage(p) && pageGroupIdOf(p) === group && pageVariantScope(p) === id
+      );
+      if (spec) {
+        snapToIndex(state.doc.pages.indexOf(spec), true);
+        return;
+      }
+    }
+    flash('Variante: ' + (variantById(id) || {}).label);
+  }
+
+  async function onVariantOnlyClick() {
+    const variants = variantsList();
+    if (!variants.length) return;
+    const id = await pickVariantFromList('Neue Seite nur für welche Variante?', variants);
+    if (!id) return;
+    addVariantOnlyPage(id);
   }
 
   function fehlerRowHasContent(r) {
@@ -227,7 +688,7 @@
     const ids = new Set();
     if (!Array.isArray(pages)) return ids;
     for (const p of pages) {
-      if (!p || isIndexPage(p) || isFehlerPage(p)) continue;
+      if (!p || isIndexPage(p) || isFehlerPage(p) || isVariantenPage(p)) continue;
       const embed = normalizeFehlerEmbed(p.fehlerEmbed);
       if (!embed) continue;
       for (const id of embed.rowIds) ids.add(id);
@@ -300,8 +761,11 @@
     for (let i = 0; i < list.length; i++) {
       const p = list[i];
       if (!p) continue;
-      if (p.kind === 'index' || p.kind === 'fehler') continue;
+      if (p.kind === 'index' || p.kind === 'fehler' || p.kind === 'varianten') continue;
       if (!p.kind) p.kind = 'layout';
+      /* v1.85: Varianten-Felder an Layout-Seiten normalisieren */
+      if (typeof p.pageGroupId !== 'string' || !p.pageGroupId) p.pageGroupId = p.id || uid('g');
+      if (typeof p.variantScope !== 'string' || !p.variantScope) p.variantScope = 'all';
       const embed = normalizeFehlerEmbed(p.fehlerEmbed);
       if (embed) p.fehlerEmbed = embed;
       else delete p.fehlerEmbed;
@@ -339,7 +803,7 @@
 
     // Also harvest any full row objects nested under legacy fehlerEmbed.rows
     for (const p of list) {
-      if (!p || isIndexPage(p) || isFehlerPage(p)) continue;
+      if (!p || isIndexPage(p) || isFehlerPage(p) || isVariantenPage(p)) continue;
       const rawRows = p.fehlerEmbed && Array.isArray(p.fehlerEmbed.rows) ? p.fehlerEmbed.rows : [];
       for (const r of rawRows) {
         if (!r || typeof r !== 'object') continue;
@@ -359,25 +823,26 @@
       }
     }
 
-    let indexPage;
-    if (!list.length || !isIndexPage(list[0])) {
-      indexPage = makeIndexPage();
-    } else {
-      indexPage = normalizeIndexPage(list[0]);
+    /* v1.85: Varianten-Seite als erstes Bookend; Index danach */
+    let variantenPage = null;
+    let indexSrc = null;
+    for (const p of list) {
+      if (!p) continue;
+      if (isVariantenPage(p) && !variantenPage) variantenPage = p;
+      if (isIndexPage(p) && !indexSrc) indexSrc = p;
     }
+    variantenPage = normalizeVariantenPage(variantenPage || makeVariantenPage());
+    const indexPage = normalizeIndexPage(indexSrc || makeIndexPage());
 
     const middle = [];
-    const start = (list.length && isIndexPage(list[0])) ? 1 : 0;
-    for (let i = start; i < list.length; i++) {
+    for (let i = 0; i < list.length; i++) {
       const p = list[i];
       if (!p) continue;
-      if (isIndexPage(p)) {
-        middle.push(makePage());
-      } else if (isFehlerPage(p)) {
-        // Canonical fehler is reattached at the end
-      } else {
-        middle.push(p);
-      }
+      if (isVariantenPage(p) || isIndexPage(p)) continue;
+      if (isFehlerPage(p)) continue; // Canonical fehler at end
+      if (!p.pageGroupId) p.pageGroupId = p.id || uid('g');
+      if (!p.variantScope) p.variantScope = 'all';
+      middle.push(p);
     }
     if (middle.length === 0) {
       middle.push(makePage());
@@ -404,7 +869,7 @@
       else delete p.fehlerEmbed;
     }
 
-    return [indexPage].concat(middle).concat([fehlerPage]);
+    return [variantenPage].concat([indexPage]).concat(middle).concat([fehlerPage]);
   }
 
   /** @deprecated use ensureBookends */
@@ -416,9 +881,25 @@
     const page = currentPage();
     const onIndex = isIndexPage(page);
     const onFehler = isFehlerPage(page);
-    const onFixed = onIndex || onFehler;
+    const onVarianten = isVariantenPage(page);
+    const onFixed = onIndex || onFehler; /* Annotationen/Fehler-Embed nur Layout */
     el.app.classList.toggle('index-page-active', onIndex);
     el.app.classList.toggle('fehler-page-active', onFehler);
+    el.app.classList.toggle('varianten-page-active', onVarianten);
+    try { syncVariantsFromPage(); } catch (_) {}
+    try { updateVariantBar(); } catch (_) {}
+    /* v1.85: auf der Varianten-Seite keine Stückliste (Button + Menü) */
+    try {
+      const hideSt = onVarianten;
+      if (el.pdfViewBtn) {
+        el.pdfViewBtn.hidden = hideSt;
+        el.pdfViewBtn.setAttribute('aria-hidden', hideSt ? 'true' : 'false');
+      }
+      const sec = document.getElementById('stuecklisteSection');
+      if (sec) sec.hidden = hideSt;
+      if (el.stuecklisteAddBtn) el.stuecklisteAddBtn.hidden = hideSt;
+      if (el.stuecklisteShowBtn) el.stuecklisteShowBtn.hidden = hideSt;
+    } catch (_) {}
     if (el.fehlerBtn) {
       // + Fehler only on layout pages (not Index, not Fehleranalyse)
       el.fehlerBtn.disabled = onFixed || !state.editMode;
@@ -431,6 +912,10 @@
       if (state.splitTool) setSplitTool(false);
       if (state.photoMoveMode) setPhotoMoveMode(false);
       if (state.photoRotateMode) setPhotoRotateMode(false);
+      if (state.teleportMode) setTeleportMode(false);
+      if (state.annTool) setAnnTool(null);
+    } else if (onVarianten && state.editMode) {
+      /* v1.85: Varianten = Foto + Unterteilung, keine Markierungen */
       if (state.teleportMode) setTeleportMode(false);
       if (state.annTool) setAnnTool(null);
     }
@@ -456,8 +941,12 @@
     liveLeafId: null,
     stream: null,
     liveVideoEl: null,
-    /** Embedded BEAK Stückliste PDF: { name, dataUrl } | null */
+    /** Embedded BEAK Stückliste PDF: { name, dataUrl } | null (aktive Variante bzw. Projekt) */
     stueckliste: null,
+    /** v1.85: Stücklisten je Varianten-ID */
+    variantStuecklisten: {},
+    /** v1.85: aktive Variante im Viewer/Editor (null = noch keine gewählt) */
+    activeVariantId: null,
     /** In-memory tally: formatted BEAK-Nr. → used quantity (stub for later PDF marking) */
     beakUsage: {},
   };
@@ -766,8 +1255,13 @@
 
   function rebuildBeakUsage() {
     const tally = {};
+    /* v1.85: Abgleich nur für sichtbare Seiten der aktiven Variante
+       (gemeinsame + Varianten-eigene; andere Varianten-Exklusivseiten zählen nicht). */
+    const vid = state.activeVariantId;
+    const useFilter = hasMultipleVariants() && !!vid;
     for (const page of state.doc.pages) {
       if (!page || !Array.isArray(page.annotations)) continue;
+      if (useFilter && !pageVisibleInViewer(page, vid)) continue;
       for (const a of page.annotations) {
         if (!a || a.type !== 'beakNr') continue;
         const key = formatBeakNr(a.beakDigits) || String(a.beakDigits || '').replace(/\D/g, '');
@@ -782,6 +1276,11 @@
 
   function updateStuecklisteUi() {
     if (typeof scheduleHistoryCheck === 'function') scheduleHistoryCheck(120);
+    /* v1.85: state.stueckliste = Stückliste der aktiven Variante (bzw. Projekt) */
+    if (hasMultipleVariants() && state.activeVariantId) {
+      const m = state.variantStuecklisten || {};
+      state.stueckliste = m[state.activeVariantId] || null;
+    }
     const has = !!(state.stueckliste && state.stueckliste.dataUrl);
     if (el.stuecklisteShowBtn) {
       el.stuecklisteShowBtn.disabled = !has;
@@ -799,7 +1298,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.84';
+  const APP_VERSION = '1.86';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -1766,7 +2265,8 @@
     }
     const dataUrl = 'data:application/pdf;base64,' + btoa(binary);
     const name = (file.name && /\.pdf$/i.test(file.name)) ? file.name : 'Stueckliste.pdf';
-    state.stueckliste = { name: name, dataUrl: dataUrl, parts: null };
+    const rec = { name: name, dataUrl: dataUrl, parts: null };
+    setActiveVariantStueckliste(rec);
     updateStuecklisteUi();
     persistSoon(300);
     flash('Stückliste hinzugefügt: ' + name);
@@ -2516,8 +3016,9 @@
   }
 
   function updatePageIndicator() {
-    const n = state.doc.pages.length;
-    const i = state.doc.pageIndex + 1;
+    const nav = getNavPages();
+    const n = nav.length || 1;
+    const i = navIndexOfPageIndex(state.doc.pageIndex) + 1;
     el.pageIndicator.textContent = i + ' / ' + n;
   }
 
@@ -2527,7 +3028,8 @@
   let photoGesture = null;
 
   function baseOffsetForIndex(index) {
-    return -index * viewportWidth();
+    /* v1.85: Track enthält getNavPages() → Offset nach Navigationsindex */
+    return -navIndexOfPageIndex(index) * viewportWidth();
   }
 
   function clearTrackTransition() {
@@ -2556,8 +3058,14 @@
   }
 
   function snapToIndex(index, animate) {
-    const max = state.doc.pages.length - 1;
-    index = clamp(index, 0, max);
+    const nav = getNavPages();
+    if (!nav.length) return;
+    /* index = reale Seitenposition; ggf. auf nächste sichtbare Seite korrigieren */
+    if (!state.doc.pages[index] || nav.indexOf(state.doc.pages[index]) < 0) {
+      index = realIndexFromNavIndex(navIndexOfPageIndex(index));
+    }
+    index = state.doc.pages.indexOf(state.doc.pages[index]);
+    if (index < 0) index = state.doc.pages.indexOf(nav[0]);
     const prevIndex = state.doc.pageIndex;
     let teleportRestored = false;
     if (index !== prevIndex && state.teleportPhoto) {
@@ -2766,8 +3274,10 @@
 
     trackDrag.moved = true;
     e.preventDefault();
-    const atFirst = state.doc.pageIndex === 0;
-    const atLast = state.doc.pageIndex === state.doc.pages.length - 1;
+    const navLen = getNavPages().length;
+    const navIdx = navIndexOfPageIndex(state.doc.pageIndex);
+    const atFirst = navIdx === 0;
+    const atLast = navIdx >= navLen - 1;
     const adj = rubberBand(dx, atFirst, atLast);
     // v1.17: höchstens ein Transform pro Bildschirmbild (iPad liefert Zeigerereignisse
     // schneller/unregelmäßiger → vorher Ruckeln durch mehrfaches Schreiben pro Frame)
@@ -2784,11 +3294,12 @@
     trackDragPendingPx = null;
     const vw = viewportWidth();
     if (vw > 0) {
+      const navLen = getNavPages().length;
       const approx = Math.round(-trackOffsetPx / vw);
-      const clamped = clamp(approx, 0, state.doc.pages.length - 1);
+      const clamped = clamp(approx, 0, Math.max(0, navLen - 1));
       if (clamped !== lastIndicatorIdx) {
         lastIndicatorIdx = clamped;
-        el.pageIndicator.textContent = (clamped + 1) + ' / ' + state.doc.pages.length;
+        el.pageIndicator.textContent = (clamped + 1) + ' / ' + navLen;
       }
     }
   }
@@ -2799,7 +3310,7 @@
     /* v1.83: im Hochformat alle Seiten stapeln – kein content-visibility:hidden (.far),
        sonst nur Seite 1+2 sichtbar und danach schwarz. */
     const portrait = document.documentElement.classList.contains('orient-portrait');
-    const idx = state.doc.pageIndex;
+    const idx = navIndexOfPageIndex(state.doc.pageIndex);
     el.pageTrack.querySelectorAll(':scope > .page-slide').forEach((sl, i) => {
       sl.classList.toggle('far', !portrait && Math.abs(i - idx) > 1);
     });
@@ -2825,8 +3336,9 @@
 
     /* v1.27: Pointer-up-Fallback – auch ohne axis==='h' als horizontalen Seitenwechsel
        werten, wenn die Geste klar horizontal war (bes. letzte/erste Seite). */
-    const pageCount = state.doc.pages.length;
-    const atEdgePage = state.doc.pageIndex === 0 || state.doc.pageIndex === pageCount - 1;
+    const pageCount = getNavPages().length;
+    const navNow = navIndexOfPageIndex(state.doc.pageIndex);
+    const atEdgePage = navNow === 0 || navNow === pageCount - 1;
     const horizontalFallback =
       dragInfo.axis !== 'h' &&
       !isTap &&
@@ -2991,25 +3503,27 @@
     /* v1.27: idleMs 120 – auf iPad stirbt Velocity oft vor Commit (Landschaft ~400px) */
     const idleMs = performance.now() - dragInfo.lastT;
     let v = idleMs > 120 ? 0 : dragInfo.velocity;
-    let target = state.doc.pageIndex;
-    const atLast = state.doc.pageIndex === pageCount - 1;
-    const atFirst = state.doc.pageIndex === 0;
+    const nav = getNavPages();
+    const pageCountNav = nav.length;
+    let navTarget = navIndexOfPageIndex(state.doc.pageIndex);
+    const atLast = navTarget >= pageCountNav - 1;
+    const atFirst = navTarget === 0;
     /* v1.27: von letzter Seite zurück leichter committen; Mitte bleibt bei 0.35 */
     const commitFracPrev = atLast ? 0.22 : 0.35;
     const commitFracNext = atFirst ? 0.22 : 0.35;
 
     if (Math.abs(v) > VELOCITY_THRESHOLD) {
-      if (v < 0) target = state.doc.pageIndex + 1;
-      else target = state.doc.pageIndex - 1;
+      if (v < 0) navTarget = navTarget + 1;
+      else navTarget = navTarget - 1;
     } else {
       const visualIndex = -trackOffsetPx / vw;
-      // Commit near halfway; otherwise ease back — feels less snappy than 28%
-      if (dx < -vw * commitFracNext) target = state.doc.pageIndex + 1;
-      else if (dx > vw * commitFracPrev) target = state.doc.pageIndex - 1;
-      else target = Math.round(visualIndex);
+      if (dx < -vw * commitFracNext) navTarget = navTarget + 1;
+      else if (dx > vw * commitFracPrev) navTarget = navTarget - 1;
+      else navTarget = Math.round(visualIndex);
     }
 
-    target = clamp(target, 0, state.doc.pages.length - 1);
+    navTarget = clamp(navTarget, 0, pageCountNav - 1);
+    const target = realIndexFromNavIndex(navTarget);
     const prev = state.doc.pageIndex;
     trackDragDidPageSwipe = target !== prev;
     snapToIndex(target, true);
@@ -3239,16 +3753,20 @@
     }
   }
 
-  function renderCell(cell) {
+  function renderCell(cell, opts) {
+    opts = opts || {};
+    const onVarianten = !!opts.varianten;
     if (cell.type === 'leaf') {
       const leaf = document.createElement('div');
       const hasPhoto = !!(cell.photo && cell.photo.src);
       leaf.className =
         'cell cell-leaf' +
+        (onVarianten ? ' varianten-leaf' : '') +
         (state.liveLeafId === cell.id ? ' live-camera' : '') +
         (hasPhoto ? ' has-photo-data' : '') +
         (state.teleportMode && state.teleportSourceId === cell.id ? ' teleport-source' : '');
       leaf.dataset.leafId = cell.id;
+      if (onVarianten && cell.variantId) leaf.dataset.variantId = cell.variantId;
 
       const img = document.createElement('img');
       img.className = 'cell-photo';
@@ -3337,6 +3855,53 @@
 
       leaf.appendChild(wrap);
 
+      /* v1.85: Varianten-Zelle – Bezeichnung unter dem Foto (Rahmen nur im Editor) */
+      if (onVarianten) {
+        const capWrap = document.createElement('div');
+        capWrap.className = 'variant-caption-wrap' + (state.editMode ? ' is-edit' : ' is-view');
+        if (state.editMode) {
+          const inp = document.createElement('input');
+          inp.type = 'text';
+          inp.className = 'variant-caption-input';
+          inp.placeholder = 'Bezeichnung der Variante';
+          inp.value = leafCaption(cell);
+          inp.setAttribute('aria-label', 'Varianten-Bezeichnung');
+          inp.addEventListener('pointerdown', (e) => e.stopPropagation());
+          inp.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+          inp.addEventListener('input', () => {
+            cell.caption = inp.value;
+            if (!cell.variantId) cell.variantId = uid('v');
+            syncVariantsFromPage();
+            updateVariantBar();
+            scheduleHistoryCheck(700);
+          });
+          inp.addEventListener('change', () => {
+            cell.caption = inp.value.trim();
+            inp.value = cell.caption;
+            syncVariantsFromPage();
+            updateVariantBar();
+            if (typeof historyCommit === 'function') historyCommit();
+          });
+          capWrap.appendChild(inp);
+        } else {
+          const lab = document.createElement('div');
+          lab.className = 'variant-caption-label';
+          lab.textContent = String(leafCaption(cell) || '').trim() || '—';
+          capWrap.appendChild(lab);
+        }
+        leaf.appendChild(capWrap);
+
+        if (!state.editMode && hasPhoto) {
+          leaf.classList.add('variant-tap-target');
+          leaf.addEventListener('click', (e) => {
+            if (trackDragDidPageSwipe) return;
+            if (e.target.closest('.variant-caption-wrap')) return;
+            e.stopPropagation();
+            enterVariantFromLeaf(cell);
+          });
+        }
+      }
+
       leaf.addEventListener('pointerdown', (e) => {
         if (state.teleportMode) {
           onTeleportLeafPointer(e, cell);
@@ -3372,8 +3937,8 @@
     wrap.style.height = '100%';
 
     const ratio = clamp(cell.ratio, 0.15, 0.85);
-    const aEl = renderCell(cell.a);
-    const bEl = renderCell(cell.b);
+    const aEl = renderCell(cell.a, opts);
+    const bEl = renderCell(cell.b, opts);
 
     aEl.style.flex = ratio + ' 1 0px';
     bEl.style.flex = (1 - ratio) + ' 1 0px';
@@ -5055,21 +5620,30 @@
     slide.dataset.pageId = page.id;
     if (isIndexPage(page)) slide.dataset.kind = 'index';
     if (isFehlerPage(page)) slide.dataset.kind = 'fehler';
+    if (isVariantenPage(page)) slide.dataset.kind = 'varianten';
 
     const stage = document.createElement('div');
     stage.className = 'stage';
     let aria = 'Seitenlayout-Bühne';
-    if (isIndexPage(page)) aria = 'Index';
+    if (isVariantenPage(page)) aria = 'Varianten';
+    else if (isIndexPage(page)) aria = 'Index';
     else if (isFehlerPage(page)) aria = 'Fehleranalyse';
     stage.setAttribute('aria-label', aria);
 
     const stageInner = document.createElement('div');
     stageInner.className = 'stage-inner';
+    if (isVariantenPage(page)) stageInner.classList.add('varianten-stage');
 
     if (isIndexPage(page)) {
       stageInner.appendChild(renderIndexPanel(page));
     } else if (isFehlerPage(page)) {
       stageInner.appendChild(renderFehlerPanel(page));
+    } else if (isVariantenPage(page)) {
+      const rootEl = renderCell(page.root, { varianten: true });
+      rootEl.classList.add('cell-root');
+      rootEl.style.width = '100%';
+      rootEl.style.height = '100%';
+      stageInner.appendChild(rootEl);
     } else {
       const embedRows = resolveFehlerEmbedRows(page);
       const hasEmbed = embedRows.length > 0;
@@ -5181,8 +5755,11 @@
     const keepStream = state.stream;
     const keepLeaf = state.liveLeafId;
     pruneHighlightLeafIds();
+    try { syncVariantsFromPage(); } catch (_) {}
     el.pageTrack.innerHTML = '';
-    state.doc.pages.forEach((page, i) => {
+    /* v1.85: Track = Navigationsreihenfolge (Viewer gefiltert nach aktiver Variante) */
+    getNavPages().forEach((page) => {
+      const i = state.doc.pages.indexOf(page);
       el.pageTrack.appendChild(renderPageSlide(page, i));
     });
     applyTrackTransform(baseOffsetForIndex(state.doc.pageIndex), false);
@@ -6930,7 +7507,10 @@
           };
         }
       }
-      return { type: 'leaf', id: cell.id, photo: outPhoto };
+      const leafOut = { type: 'leaf', id: cell.id, photo: outPhoto };
+      if (typeof cell.caption === 'string' && cell.caption) leafOut.caption = cell.caption;
+      if (typeof cell.variantId === 'string' && cell.variantId) leafOut.variantId = cell.variantId;
+      return leafOut;
     }
     return {
       type: 'split',
@@ -7359,6 +7939,14 @@
   }
 
   function serializePage(p, opts) {
+    if (isVariantenPage(p)) {
+      return {
+        id: p.id,
+        kind: 'varianten',
+        title: p.title || 'Varianten',
+        root: cloneCell(p.root, opts),
+      };
+    }
     if (isIndexPage(p)) {
       return {
         id: p.id,
@@ -7391,6 +7979,8 @@
       kind: 'layout',
       root: cloneCell(p.root, opts),
       annotations: (p.annotations || []).map((a) => serializeAnnotation(a, opts)),
+      pageGroupId: pageGroupIdOf(p),
+      variantScope: pageVariantScope(p),
     };
     if (p.highlight) out.highlight = true; /* v1.67 */
     if (p.highlight) {
@@ -7403,17 +7993,39 @@
   }
 
   function serialize(opts) {
+    try { syncVariantsFromPage(); } catch (_) {}
     const out = {
       version: 5,
       pageIndex: state.doc.pageIndex,
       pages: state.doc.pages.map((p) => serializePage(p, opts)),
       changeLog: normalizeChangeLog(state.changeLog),
+      variants: variantsList().map((v) => ({
+        id: v.id,
+        label: v.label,
+        leafId: v.leafId,
+        stuecklisteFile: v.stuecklisteFile || ('source/Stueckliste-' + v.id + '.pdf'),
+      })),
+      activeVariantId: state.activeVariantId || null,
     };
-    if (state.stueckliste && state.stueckliste.name) {
+    /* Legacy-Einzelstückliste (erste Variante bzw. Projekt ohne Mehrfachvarianten) */
+    const primary = getActiveVariantStueckliste() || state.stueckliste;
+    if (primary && primary.name) {
       out.stueckliste = {
-        name: state.stueckliste.name,
+        name: primary.name,
         file: 'source/Stueckliste.pdf',
       };
+    }
+    if (hasMultipleVariants() && state.variantStuecklisten) {
+      out.variantStuecklisten = {};
+      for (const v of variantsList()) {
+        const rec = state.variantStuecklisten[v.id];
+        if (rec && rec.name) {
+          out.variantStuecklisten[v.id] = {
+            name: rec.name,
+            file: v.stuecklisteFile || ('source/Stueckliste-' + v.id + '.pdf'),
+          };
+        }
+      }
     }
     return out;
   }
@@ -7442,6 +8054,8 @@
         type: 'leaf',
         id: cell.id || uid('l'),
         photo: normalizePhoto(cell.photo),
+        caption: typeof cell.caption === 'string' ? cell.caption : '',
+        variantId: (typeof cell.variantId === 'string' && cell.variantId) ? cell.variantId : null,
       };
     }
     return {
@@ -7461,6 +8075,10 @@
     const pages = [];
     for (const p of data.pages) {
       if (!p || typeof p !== 'object') return false;
+      if (p.kind === 'varianten') {
+        pages.push(normalizeVariantenPage(p));
+        continue;
+      }
       if (p.kind === 'index') {
         pages.push(normalizeIndexPage(p));
         continue;
@@ -7471,8 +8089,9 @@
       }
       // Legacy pages without kind, or layout pages
       if (!p.root || !validateCell(p.root)) return false;
+      const pid = p.id || uid('p');
       const layoutPage = {
-        id: p.id || uid('p'),
+        id: pid,
         kind: 'layout',
         root: normalizeCellTree(p.root),
         annotations: Array.isArray(p.annotations)
@@ -7480,6 +8099,8 @@
           : [],
         highlight: !!p.highlight,
         highlightLeafIds: p.highlight ? normalizeHighlightLeafIds(p) : [],
+        pageGroupId: (typeof p.pageGroupId === 'string' && p.pageGroupId) ? p.pageGroupId : pid,
+        variantScope: (typeof p.variantScope === 'string' && p.variantScope) ? p.variantScope : 'all',
       };
       const embed = normalizeFehlerEmbed(p.fehlerEmbed);
       if (embed) layoutPage.fehlerEmbed = embed;
@@ -7490,10 +8111,13 @@
        v1.48: gerätelokale letzte Seite danach via applyRememberedPage() (localStorage). */
     const idx = 0;
     stopLiveCamera();
-    state.doc = { pages: migrated, pageIndex: idx };
+    state.doc = { pages: migrated, pageIndex: idx, variants: Array.isArray(data.variants) ? data.variants.slice() : [] };
     state.changeLog = normalizeChangeLog(data.changeLog);
     state.selectedId = null;
     state.selectedSplitId = null;
+    state.activeVariantId = (typeof data.activeVariantId === 'string' && data.activeVariantId) ? data.activeVariantId : null;
+    state.variantStuecklisten = {};
+    try { syncVariantsFromPage(); } catch (_) {}
     rebuildBeakUsage();
     try { bumpThumbCache(); } catch (_) {}
     try { clearPersistedThumbs(); } catch (_) {}
@@ -7927,7 +8551,21 @@
         const pdfBytes = await dataUrlToUint8(state.stueckliste.dataUrl);
         zip.file('source/Stueckliste.pdf', pdfBytes);
       } catch (err) {
-        console.warn('Stückliste-PDF übersprungen', err);
+        console.warn('Stuckliste-PDF uebersprungen', err);
+      }
+    }
+    /* v1.85: Stuckliste je Variante */
+    if (state.variantStuecklisten) {
+      for (const v of variantsList()) {
+        const rec = state.variantStuecklisten[v.id];
+        if (!rec || !rec.dataUrl) continue;
+        const file = v.stuecklisteFile || ('source/Stueckliste-' + v.id + '.pdf');
+        try {
+          const pdfBytes = await dataUrlToUint8(rec.dataUrl);
+          zip.file(file, pdfBytes);
+        } catch (err) {
+          console.warn('Varianten-Stuckliste uebersprungen', file, err);
+        }
       }
     }
 
@@ -8494,25 +9132,60 @@
 
   async function loadStuecklisteFromZip(zip, data) {
     state.stueckliste = null;
+    state.variantStuecklisten = {};
     const preferred =
       (data && data.stueckliste && data.stueckliste.file) ||
       'source/Stueckliste.pdf';
     let zf = zip.file(preferred);
     if (!zf) {
-      // Fallback: any *Stueckliste*.pdf or source/*.pdf
       const names = Object.keys(zip.files || {});
       const hit = names.find((n) => !zip.files[n].dir && /stueckliste\.pdf$/i.test(n))
         || names.find((n) => !zip.files[n].dir && /^source\/[^/]+\.pdf$/i.test(n));
       if (hit) zf = zip.file(hit);
     }
-    if (!zf) return;
-    const blob = await zf.async('blob');
-    const dataUrl = await blobToDataUrl(blob);
-    const baseName = (data && data.stueckliste && data.stueckliste.name)
-      || (zf.name && zf.name.split('/').pop())
-      || 'Stueckliste.pdf';
-    state.stueckliste = { name: baseName, dataUrl: dataUrl, parts: null };
+    if (zf) {
+      const blob = await zf.async('blob');
+      const dataUrl = await blobToDataUrl(blob);
+      const baseName = (data && data.stueckliste && data.stueckliste.name)
+        || (zf.name && zf.name.split('/').pop())
+        || 'Stueckliste.pdf';
+      state.stueckliste = { name: baseName, dataUrl: dataUrl, parts: null };
+    }
+    /* v1.85: pro Variante */
+    const meta = (data && data.variantStuecklisten && typeof data.variantStuecklisten === 'object')
+      ? data.variantStuecklisten : {};
+    const variants = Array.isArray(data && data.variants) ? data.variants : variantsList();
+    for (const v of variants) {
+      const info = meta[v.id];
+      const file = (info && info.file) || v.stuecklisteFile || ('source/Stueckliste-' + v.id + '.pdf');
+      let f = zip.file(file);
+      if (!f && info && info.file) f = zip.file(info.file);
+      if (!f) continue;
+      try {
+        const blob = await f.async('blob');
+        const dataUrl = await blobToDataUrl(blob);
+        const name = (info && info.name) || (f.name && f.name.split('/').pop()) || 'Stueckliste.pdf';
+        state.variantStuecklisten[v.id] = { name: name, dataUrl: dataUrl, parts: null };
+      } catch (err) {
+        console.warn('Varianten-Stuckliste laden', file, err);
+      }
+    }
+    /* Migration: eine Legacy-Stuckliste auf erste Variante legen, falls Varianten noch keine haben */
+    if (state.stueckliste && state.stueckliste.dataUrl && variants.length) {
+      const first = variants[0];
+      if (!state.variantStuecklisten[first.id]) {
+        state.variantStuecklisten[first.id] = {
+          name: state.stueckliste.name,
+          dataUrl: state.stueckliste.dataUrl,
+          parts: null,
+        };
+      }
+    }
+    if (state.activeVariantId && state.variantStuecklisten[state.activeVariantId]) {
+      state.stueckliste = state.variantStuecklisten[state.activeVariantId];
+    }
   }
+
 
   /* v1.58: Open-time content signature (no live multi-device sync).
      localStorage map docKey → signature (savedAt or hash of project.json).
@@ -9387,13 +10060,15 @@
 
       let pageLabel = 'Seite ' + (i + 1);
       if (i === current) btn.setAttribute('aria-current', 'page');
-      if (isIndexPage(pages[i])) {
-        /* v1.34: erste Miniatur-Beschriftung immer „Arbeitsschritte“ (nicht Index-Titel/Projektname) */
-        pageLabel = (i === 0) ? 'Arbeitsschritte' : (pages[i].title || 'Arbeitsschritte');
+      if (isVariantenPage(pages[i])) {
+        pageLabel = pages[i].title || 'Varianten';
+      } else if (isIndexPage(pages[i])) {
+        /* v1.34/v1.85: Index-Beschriftung immer „Arbeitsschritte“ */
+        pageLabel = 'Arbeitsschritte';
       } else if (isFehlerPage(pages[i])) pageLabel = (pages[i].title || 'Fehleranalyse');
       btn.setAttribute('aria-label', pageLabel);
       btn.title = pageLabel;
-      if (isIndexPage(pages[i]) || isFehlerPage(pages[i])) {
+      if (isVariantenPage(pages[i]) || isIndexPage(pages[i]) || isFehlerPage(pages[i])) {
         const cap = document.createElement('span');
         cap.className = 'overview-caption';
         cap.textContent = pageLabel;
@@ -10036,6 +10711,16 @@
     el.editorBtn.addEventListener('click', () => setEditMode(true));
   }
   el.fertigBtn.addEventListener('click', () => setEditMode(false));
+  /* v1.85: Varianten-Leiste */
+  (function bindVariantBar() {
+    const add = document.getElementById('variantAddBtn');
+    const sw = document.getElementById('variantSwitchBtn');
+    const only = document.getElementById('variantOnlyBtn');
+    if (add) add.addEventListener('click', () => { void onVariantAddClick(); });
+    if (sw) sw.addEventListener('click', () => { void onVariantSwitchClick(); });
+    if (only) only.addEventListener('click', () => { void onVariantOnlyClick(); });
+  })();
+
   if (el.chromePosBtn) {
     el.chromePosBtn.addEventListener('click', () => toggleChromeBarPosition());
   }
