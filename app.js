@@ -764,8 +764,20 @@
       return;
     }
 
-    if (addBtn) addBtn.hidden = false;
-    if (onlyBtn) onlyBtn.hidden = false;
+    /* v1.90: „+ Variante“ aus, wenn jede Projektvariante schon eine Spezialseite
+       in dieser Gruppe hat (z. B. 2 Varianten auf Seite 1 und 2 Spezialseiten). */
+    const allVariantsHavePage =
+      variants.length >= 2 &&
+      variants.every((v) =>
+        siblings.some((pg) => pageVariantScope(pg) === v.id)
+      );
+    /* v1.90: „Nur für eine Variante“ aus, sobald die Seite schon mehrfach
+       variantenbezogen ist (≥2 Versionen in der Gruppe oder ≥1 Spezialisierung). */
+    const pageAlreadyMulti =
+      siblings.length >= 2 || specialized.length >= 1 || scope !== 'all';
+
+    if (addBtn) addBtn.hidden = !!allVariantsHavePage;
+    if (onlyBtn) onlyBtn.hidden = !!pageAlreadyMulti;
     if (switchBtn) switchBtn.hidden = !canSwitchForPage;
 
     if (multi) {
@@ -1521,7 +1533,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.89';
+  const APP_VERSION = '1.90';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -2449,7 +2461,7 @@
     const key = normalizeBeakKey(digits);
     const pdf = state.stueckliste;
     if (!pdf || !pdf.dataUrl) {
-      void showHinweis('Keine Stückliste eingebettet.\nIm Menü über BEAK Stückliste → Hinzufügen/Aktualisieren eine PDF einbetten.');
+      void showHinweis(stuecklisteAddPromptMessage());
       return;
     }
     let parts = await ensureStuecklisteParsed(false);
@@ -2477,6 +2489,17 @@
     }
   }
 
+  /** v1.90: Hinweistext beim Hinzufügen – mit aktivem Varianten-Namen bei ≥2 Varianten. */
+  function stuecklisteAddPromptMessage() {
+    syncVariantsFromPage();
+    if (hasMultipleVariants() && state.activeVariantId) {
+      const v = variantById(state.activeVariantId);
+      const name = (v && v.label) ? v.label : 'Variante';
+      return 'Stückliste für die Variante „' + name + '“ jetzt hinzufügen';
+    }
+    return 'Keine Stückliste eingebettet.\nIm Menü über BEAK Stückliste → Hinzufügen/Aktualisieren eine PDF einbetten – oder jetzt eine PDF auswählen.';
+  }
+
   async function setStuecklisteFromFile(file) {
     if (!file) return;
     const buf = await file.arrayBuffer();
@@ -2492,7 +2515,13 @@
     setActiveVariantStueckliste(rec);
     updateStuecklisteUi();
     persistSoon(300);
-    flash('Stückliste hinzugefügt: ' + name);
+    if (hasMultipleVariants() && state.activeVariantId) {
+      const v = variantById(state.activeVariantId);
+      const vn = (v && v.label) ? v.label : 'Variante';
+      flash('Stückliste für Variante „' + vn + '“ hinzugefügt: ' + name);
+    } else {
+      flash('Stückliste hinzugefügt: ' + name);
+    }
     warmupPdfPipeline();
     try {
       const parts = await ensureStuecklisteParsed(true);
@@ -11396,7 +11425,7 @@
       const has = !!(state.stueckliste && state.stueckliste.dataUrl);
       if (has) { void openBeakPdfViewer(); return; }
       void showConfirm(
-        'Keine Stückliste eingebettet.\nIm Menü über BEAK Stückliste → Hinzufügen/Aktualisieren eine PDF einbetten – oder jetzt eine PDF auswählen.',
+        stuecklisteAddPromptMessage(),
         {
           okLabel: 'PDF hinzufügen',
           cancelLabel: 'Schließen',
@@ -11414,8 +11443,21 @@
   if (el.stuecklisteAddBtn && el.stuecklisteFile) {
     el.stuecklisteAddBtn.addEventListener('click', () => {
       closeMenu();
-      el.stuecklisteFile.value = '';
-      el.stuecklisteFile.click();
+      const openPicker = () => {
+        el.stuecklisteFile.value = '';
+        el.stuecklisteFile.click();
+      };
+      /* v1.90: bei mehreren Varianten zuerst Hinweis mit Varianten-Namen */
+      if (hasMultipleVariants() && state.activeVariantId) {
+        void showConfirm(stuecklisteAddPromptMessage(), {
+          okLabel: 'PDF hinzufügen',
+          cancelLabel: 'Abbrechen',
+          okPrimary: true,
+          onOk: openPicker,
+        });
+      } else {
+        openPicker();
+      }
     });
     el.stuecklisteFile.addEventListener('change', () => {
       const f = el.stuecklisteFile.files && el.stuecklisteFile.files[0];

@@ -2,7 +2,14 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.89
+**Version:** 1.90
+
+## Neu in 1.90
+
+- **„+ Variante“:** Ausgeblendet, wenn jede auf Seite 1 benannte Variante bereits eine Spezialseite für die aktuelle Seitengruppe hat.
+- **„Nur für eine Variante“:** Ausgeblendet, sobald die Seite schon mehrfach variantenbezogen ist (≥2 Versionen / Spezialisierung).
+- **Stückliste:** Hinweis nennt die aktive Variante, z. B. „Stückliste für die Variante „Alpha“ jetzt hinzufügen“.
+- **Service Worker:** Cache `anweisungen-shell-v1.90` und `?v=1.90`.
 
 ## Neu in 1.89
 
