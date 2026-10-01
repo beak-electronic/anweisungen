@@ -3443,6 +3443,53 @@ html.overlay-scroll, html.overlay-scroll body { touch-action: auto; }
   flex-direction: column;
   gap: 10px;
   margin-bottom: 16px;
+  position: relative;
+}
+/* v1.93: Initialen-Overlay deckt Neues Projekt / Öffnen / Tour ab */
+.welcome-initials-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 12px;
+  padding: 14px 12px;
+  box-sizing: border-box;
+  background: var(--panel);
+  border-radius: 12px;
+}
+.welcome-initials-overlay[hidden] { display: none !important; }
+.welcome-actions.initials-required > .welcome-btn {
+  pointer-events: none;
+  opacity: 0.35;
+}
+.welcome-initials-msg {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+  text-align: center;
+}
+.welcome-initials-input {
+  width: 100%;
+  max-width: 9rem;
+  margin: 0 auto;
+  box-sizing: border-box;
+  text-align: center;
+  text-transform: uppercase;
+  font: 800 1.15rem/1.2 system-ui, sans-serif;
+  letter-spacing: 0.12em;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 2px solid var(--border);
+  background: #0f1319;
+  color: var(--text);
+}
+.welcome-initials-input:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 .welcome-btn {
   width: 100%;
@@ -3942,6 +3989,10 @@ html.orient-portrait.app-h-fixed .page-viewport {
   opacity: 0.95;
 }
 .variant-caption-wrap.is-edit .variant-caption-drag {
+  /* v1.93: kein „Verschieben“-Text — Griff entfällt; Box selbst ziehbar */
+  display: none !important;
+}
+.variant-caption-wrap.is-edit .variant-caption-drag-legacy {
   /* v1.92: Griff oberhalb — gleiche Top-Left-Ankerposition wie Viewer-Label */
   position: absolute;
   left: 0;
@@ -4206,4 +4257,99 @@ html.orient-portrait.app-h-fixed .page-viewport {
 .app.varianten-page-active.edit-mode #toolBeakNr,
 .app.varianten-page-active.edit-mode #fehlerBtn {
   display: none !important;
+}
+
+
+/* v1.93: Stückliste-Button auf Varianten-Seite (Seite 1) ausblenden */
+.app.varianten-page-active #pdfViewBtn,
+.app.varianten-page-active .pdf-view-btn {
+  display: none !important;
+}
+
+
+/* ==== v1.94: Varianten-Leiste – Chips + Multi-Checkbox ==================== */
+.variant-bar {
+  justify-content: space-between;
+  gap: 10px 12px;
+}
+.variant-bar-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.variant-chip {
+  appearance: none;
+  border: 2px solid rgba(232, 236, 241, 0.35);
+  background: rgba(26, 31, 39, 0.72);
+  color: var(--text, #e8ecf1);
+  font: 700 0.85rem/1.1 system-ui, sans-serif;
+  padding: 8px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  min-height: 34px;
+  letter-spacing: 0.01em;
+}
+.variant-chip:hover,
+.variant-chip:focus-visible {
+  border-color: rgba(125, 211, 252, 0.75);
+  outline: none;
+}
+.variant-chip.is-active {
+  border-color: #7dd3fc;
+  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.45);
+  background: rgba(125, 211, 252, 0.12);
+  color: #e8f7ff;
+  cursor: default;
+}
+.variant-bar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.variant-pick-multi .variant-pick-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0 12px;
+  max-height: min(50vh, 360px);
+  overflow: auto;
+}
+.variant-pick-check-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #2e3644);
+  background: rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--text, #e8ecf1);
+}
+.variant-pick-check-row:hover {
+  border-color: rgba(125, 211, 252, 0.5);
+}
+.variant-pick-check-label {
+  flex: 1 1 auto;
+  text-align: left;
+}
+.variant-pick-check {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+  accent-color: var(--accent, #dd007a);
+}
+.variant-pick-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: stretch;
+}
+.variant-pick-actions .btn {
+  flex: 1 1 0;
 }

@@ -1,10 +1,10 @@
 /* Anweisungen – Service Worker (App-Shell Offline-Cache). Keine .beak-Projekte cachen. */
-const CACHE = 'anweisungen-shell-v1.92';
+const CACHE = 'anweisungen-shell-v1.94';
 const SHELL = [
   './',
   './index.html',
-  './styles.css?v=1.92',
-  './app.js?v=1.92',
+  './styles.css?v=1.94',
+  './app.js?v=1.94',
   './manifest.webmanifest',
   './favicon.svg',
   './favicon.png',
@@ -23,10 +23,10 @@ const SHELL = [
   './icons/icon-512-maskable.png',
   './vendor/jszip.min.js',
   './vendor/pdf-lib.min.js',
-  './vendor/pdf.min.mjs?v=1.92',
-  './vendor/pdf.worker.min.mjs?v=1.92',
-  './vendor/pdf.legacy.iife.js?v=1.92',
-  './vendor/pdf.worker.legacy.iife.js?v=1.92',
+  './vendor/pdf.min.mjs?v=1.94',
+  './vendor/pdf.worker.min.mjs?v=1.94',
+  './vendor/pdf.legacy.iife.js?v=1.94',
+  './vendor/pdf.worker.legacy.iife.js?v=1.94',
 ];
 
 self.addEventListener('install', (event) => {

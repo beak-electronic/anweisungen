@@ -394,18 +394,40 @@
     return page.id || null;
   }
 
-  function pageVariantScope(page) {
-    if (!page || isFixedPage(page) || isVariantenPage(page)) return 'all';
+  /** v1.94: null = gilt für alle; sonst Liste der Varianten-IDs (1…n). */
+  function pageVariantScopeIds(page) {
+    if (!page || isFixedPage(page) || isVariantenPage(page)) return null;
     const s = page.variantScope;
-    if (typeof s === 'string' && s && s !== 'all') return s;
-    return 'all';
+    if (Array.isArray(s)) {
+      const ids = s.filter((id) => typeof id === 'string' && id && id !== 'all');
+      return ids.length ? ids : null;
+    }
+    if (typeof s === 'string' && s && s !== 'all') return [s];
+    return null;
+  }
+
+  /** Kompatibilität: 'all' | einzelne ID | '\0'-joined Multi-Key. */
+  function pageVariantScope(page) {
+    const ids = pageVariantScopeIds(page);
+    if (!ids) return 'all';
+    if (ids.length === 1) return ids[0];
+    return ids.join('\0');
+  }
+
+  function pageScopeIncludesVariant(page, variantId) {
+    if (!variantId) return false;
+    const ids = pageVariantScopeIds(page);
+    if (!ids) return true;
+    return ids.indexOf(variantId) >= 0;
   }
 
   function hasSpecialization(groupId, variantId) {
     if (!groupId || !variantId) return false;
     for (const p of state.doc.pages || []) {
       if (!p || isFixedPage(p)) continue;
-      if (pageGroupIdOf(p) === groupId && pageVariantScope(p) === variantId) return true;
+      if (pageGroupIdOf(p) !== groupId) continue;
+      const ids = pageVariantScopeIds(p);
+      if (ids && ids.indexOf(variantId) >= 0) return true;
     }
     return false;
   }
@@ -414,12 +436,12 @@
     if (!page) return false;
     if (isVariantenPage(page) || isIndexPage(page) || isFehlerPage(page)) return true;
     if (!hasMultipleVariants()) return true;
-    const scope = pageVariantScope(page);
-    if (scope === 'all') {
+    const ids = pageVariantScopeIds(page);
+    if (!ids) {
       if (variantId && hasSpecialization(pageGroupIdOf(page), variantId)) return false;
       return true;
     }
-    return !!variantId && scope === variantId;
+    return !!variantId && ids.indexOf(variantId) >= 0;
   }
 
   /** Seiten in Navigationsreihenfolge. Ab v1.88: Editor und Viewer gleich gefiltert
@@ -620,9 +642,11 @@
     if (!v) return null;
     const group = pageGroupIdOf(page);
     /* Existiert schon eine Spezialisierung? → dorthin wechseln */
-    const existing = (state.doc.pages || []).find(
-      (p) => !isFixedPage(p) && pageGroupIdOf(p) === group && pageVariantScope(p) === variantId
-    );
+    const existing = (state.doc.pages || []).find((p) => {
+      if (!p || isFixedPage(p) || pageGroupIdOf(p) !== group) return false;
+      const ids = pageVariantScopeIds(p);
+      return !!(ids && ids.length === 1 && ids[0] === variantId);
+    });
     if (existing) {
       setActiveVariant(variantId, { rerender: false });
       const idx = state.doc.pages.indexOf(existing);
@@ -671,30 +695,39 @@
     return clone;
   }
 
-  /** v1.88: Aktuelle Seite auf nur eine Variante umstellen (keine neue Seite).
-   *  Gleiche Seitennummer/pageGroup; andere Varianten überspringen sie im Viewer. */
-  function convertCurrentPageToVariantOnly(variantId) {
-    const v = variantById(variantId);
-    if (!v) return null;
+  /** v1.88/v1.94: Aktuelle Seite auf bestimmte Variante(n) umstellen (keine neue Seite). */
+  function convertCurrentPageToVariantSubset(variantIds) {
+    const ids = (variantIds || []).filter((id) => !!variantById(id));
+    if (!ids.length) {
+      flash('Bitte mindestens eine Variante wählen', 3500, 'error');
+      return null;
+    }
     const page = currentPage();
     if (!page || isFixedPage(page) || isVariantenPage(page)) {
-      flash('Nur Layout-Seiten können auf eine Variante beschränkt werden', 4000, 'error');
+      flash('Nur Layout-Seiten können auf Varianten beschränkt werden', 4000, 'error');
       return null;
     }
     stopLiveCamera();
     if (!page.pageGroupId) page.pageGroupId = page.id;
-    if (pageVariantScope(page) === variantId) {
-      setActiveVariant(variantId);
-      flash('Seite gilt bereits nur für „' + v.label + '“');
-      return page;
-    }
-    page.variantScope = variantId;
-    setActiveVariant(variantId, { rerender: false });
+    page.variantScope = ids.length === 1 ? ids[0] : ids.slice();
+    const activate = (state.activeVariantId && ids.indexOf(state.activeVariantId) >= 0)
+      ? state.activeVariantId
+      : ids[0];
+    setActiveVariant(activate, { rerender: false });
     renderAll();
     snapToIndex(state.doc.pages.indexOf(page), true);
     if (typeof historyCommit === 'function') historyCommit();
-    flash('Seite gilt nur für „' + v.label + '“');
+    const labels = ids.map((id) => {
+      const v = variantById(id);
+      return v ? (variantShortLabel(v) || v.label) : id;
+    });
+    flash('Seite gilt nur für „' + labels.join(', ') + '“');
     return page;
+  }
+
+  /** v1.88: Aktuelle Seite auf nur eine Variante umstellen (keine neue Seite). */
+  function convertCurrentPageToVariantOnly(variantId) {
+    return convertCurrentPageToVariantSubset([variantId]);
   }
 
   /** @deprecated Name – leitet auf convertCurrentPageToVariantOnly um */
@@ -702,10 +735,134 @@
     return convertCurrentPageToVariantOnly(variantId);
   }
 
-  async function pickVariantFromList(title, variants) {
+  /** v1.93/v1.94: Chip-/Wechsel-Optionen —
+   *  Einzel-Spezialseiten als eigene Chips; Shared-Rest als ein Chip „A, B“.
+   *  Multi-„Nur für“-Seiten (scope-Array) ebenfalls als ein Chip. */
+  function buildPageVariantSwitchOptions(page) {
+    const variants = variantsList();
+    if (!variants.length) return [];
+    if (!page || isFixedPage(page) || isVariantenPage(page)) {
+      /* Index o. ä.: eine Chip-Zeile aller Varianten (nur Anzeige / Aktiv setzen) */
+      const ids = variants.map((v) => v.id);
+      const label = variants.map((v) => variantShortLabel(v) || v.label).join(', ');
+      return [{
+        id: ids[0],
+        label: label,
+        title: variants.map((v) => variantFullLabel(v) || v.label).join(', '),
+        current: true,
+        groupIds: ids,
+        inert: true,
+      }];
+    }
+    const group = pageGroupIdOf(page);
+    const siblings = pagesSharingGroup(group);
+    const covered = new Set();
+    const opts = [];
+    const viewingIds = pageVariantScopeIds(page);
+    const viewingKey = viewingIds ? viewingIds.slice().sort().join('\0') : 'all';
+
+    /* 1) Exclusive pages (single or multi) */
+    for (const pg of siblings) {
+      const ids = pageVariantScopeIds(pg);
+      if (!ids) continue;
+      ids.forEach((id) => covered.add(id));
+      const label = ids.map((id) => {
+        const v = variantById(id);
+        return v ? (variantShortLabel(v) || v.label) : id;
+      }).join(', ');
+      const title = ids.map((id) => {
+        const v = variantById(id);
+        return v ? (variantFullLabel(v) || v.label) : id;
+      }).join(', ');
+      const key = ids.slice().sort().join('\0');
+      const isCurrentPage = key === viewingKey;
+      const activeIn = !!(state.activeVariantId && ids.indexOf(state.activeVariantId) >= 0);
+      opts.push({
+        id: ids[0],
+        label: label,
+        title: title,
+        current: isCurrentPage || (activeIn && viewingKey === key),
+        groupIds: ids.slice(),
+        pageRef: pg,
+      });
+    }
+
+    /* 2) Shared remaining */
+    const hasShared = siblings.some((pg) => !pageVariantScopeIds(pg));
+    const remaining = variants.filter((v) => !covered.has(v.id));
+    if (hasShared && remaining.length) {
+      const ids = remaining.map((x) => x.id);
+      const label = remaining.map((x) => variantShortLabel(x) || x.label).join(', ');
+      const title = remaining.map((x) => variantFullLabel(x) || x.label).join(', ');
+      const sharedPage = siblings.find((pg) => !pageVariantScopeIds(pg));
+      const isCurrentPage = viewingKey === 'all';
+      const activeIn = !!(state.activeVariantId && ids.indexOf(state.activeVariantId) >= 0);
+      opts.push({
+        id: ids[0],
+        label: label,
+        title: title,
+        current: isCurrentPage && (activeIn || remaining.length === variants.length),
+        groupIds: ids,
+        pageRef: sharedPage,
+      });
+    }
+
+    /* Order: follow page-1 variant order — singles when their id appears, shared group at first remaining */
+    if (!opts.length && variants.length) {
+      const ids = variants.map((v) => v.id);
+      return [{
+        id: ids[0],
+        label: variants.map((v) => variantShortLabel(v) || v.label).join(', '),
+        title: variants.map((v) => variantFullLabel(v) || v.label).join(', '),
+        current: true,
+        groupIds: ids,
+        inert: true,
+      }];
+    }
+
+    /* Deduplicate by groupIds key while preserving encounter order */
+    const seen = new Set();
+    const ordered = [];
+    for (const o of opts) {
+      const k = (o.groupIds || []).slice().sort().join('\0');
+      if (seen.has(k)) continue;
+      seen.add(k);
+      ordered.push(o);
+    }
+    return ordered;
+  }
+
+  /**
+   * v1.93: variants = Varianten-Objekte ODER Optionen {id,label,current?,title?,groupIds?}.
+   * opts.greyCurrent (default true): aktive Option ausgrauen.
+   * opts.autoSingle (default true): bei genau 1 Option sofort zurückgeben.
+   */
+  async function pickVariantFromList(title, variants, opts) {
+    const o = opts || {};
+    const greyCurrent = o.greyCurrent !== false;
+    const autoSingle = o.autoSingle !== false;
     if (!variants || !variants.length) return null;
-    if (variants.length === 1) return variants[0].id;
-    /* Einfacher Picker über confirm-Kette / Prompt-Ersatz: Menü-Liste im Status */
+    const options = variants.map((v) => {
+      if (v && Array.isArray(v.groupIds)) {
+        return {
+          id: v.id,
+          label: v.label || variantShortLabel(v) || '',
+          title: v.title || v.label || '',
+          current: !!v.current,
+          groupIds: v.groupIds,
+        };
+      }
+      /* plain variant from variantsList() */
+      const isCur = !!(state.activeVariantId && v.id === state.activeVariantId);
+      return {
+        id: v.id,
+        label: variantShortLabel(v) || v.label,
+        title: (v.kuerzel && v.label && v.kuerzel !== v.label) ? v.label : (variantFullLabel(v) || v.label || ''),
+        current: isCur,
+        groupIds: [v.id],
+      };
+    });
+    if (autoSingle && options.length === 1) return options[0].id;
     return new Promise((resolve) => {
       const backdrop = document.createElement('div');
       backdrop.className = 'variant-pick-backdrop';
@@ -717,20 +874,20 @@
       h.className = 'variant-pick-title';
       h.textContent = title || 'Variante wählen';
       panel.appendChild(h);
-      for (const v of variants) {
+      for (const opt of options) {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'btn touch block variant-pick-item';
-        b.textContent = variantShortLabel(v) || v.label;
-        if (v.kuerzel && v.label && v.kuerzel !== v.label) b.title = v.label;
-        /* v1.89: bereits aktive Variante ausgegraut / nicht wählbar */
-        if (state.activeVariantId && v.id === state.activeVariantId) {
+        b.textContent = opt.label;
+        if (opt.title && opt.title !== opt.label) b.title = opt.title;
+        const shouldGrey = greyCurrent && opt.current;
+        if (shouldGrey) {
           b.disabled = true;
           b.classList.add('is-current');
           b.setAttribute('aria-disabled', 'true');
           b.title = 'Bereits aktiv';
         } else {
-          b.addEventListener('click', () => { cleanup(); resolve(v.id); });
+          b.addEventListener('click', () => { cleanup(); resolve(opt.id); });
         }
         panel.appendChild(b);
       }
@@ -749,14 +906,141 @@
     });
   }
 
+  function renderVariantBarChips(options) {
+    const host = document.getElementById('variantBarChips');
+    if (!host) return;
+    host.innerHTML = '';
+    const opts = options || [];
+    const onlyOne = opts.length <= 1;
+    for (const opt of opts) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'variant-chip' + (opt.current ? ' is-active' : '');
+      b.textContent = opt.label;
+      if (opt.title && opt.title !== opt.label) b.title = opt.title;
+      b.setAttribute('aria-pressed', opt.current ? 'true' : 'false');
+      const inert = !!opt.inert || onlyOne || !!opt.current;
+      if (inert && (onlyOne || opt.inert)) {
+        /* Einziger Chip / rein informativ: Klick ohne Wirkung, aber outlined */
+        b.classList.add('is-active');
+        b.setAttribute('aria-pressed', 'true');
+        b.addEventListener('click', (e) => { e.preventDefault(); });
+      } else if (opt.current) {
+        /* Aktiver Chip: outlined, kein Wechsel nötig */
+        b.addEventListener('click', (e) => { e.preventDefault(); });
+      } else {
+        b.addEventListener('click', () => { void activateVariantChip(opt); });
+      }
+      host.appendChild(b);
+    }
+  }
+
+  async function activateVariantChip(opt) {
+    if (!opt || !opt.groupIds || !opt.groupIds.length) return;
+    const prefer = (state.activeVariantId && opt.groupIds.indexOf(state.activeVariantId) >= 0)
+      ? state.activeVariantId
+      : opt.id;
+    setActiveVariant(prefer, { rerender: false });
+    const pages = state.doc.pages || [];
+    let target = opt.pageRef || null;
+    if (!target) {
+      const cur = currentPage();
+      const group = cur && !isFixedPage(cur) ? pageGroupIdOf(cur) : null;
+      if (group) {
+        target = pages.find((p) => {
+          if (!p || isFixedPage(p) || pageGroupIdOf(p) !== group) return false;
+          const ids = pageVariantScopeIds(p);
+          if (!ids) {
+            /* shared: matches if opt covers remaining / all-shared chip */
+            return opt.groupIds.length > 1 || !hasSpecialization(group, prefer);
+          }
+          if (ids.length !== opt.groupIds.length) return false;
+          return opt.groupIds.every((id) => ids.indexOf(id) >= 0);
+        }) || null;
+      }
+    }
+    if (target) {
+      renderAll();
+      snapToIndex(pages.indexOf(target), true);
+    } else {
+      renderAll();
+    }
+    updateVariantBar();
+  }
+
+  /** v1.94: Checkbox-Dialog für „Nur für bestimmte Variante(n)“. */
+  async function pickVariantsMultiCheckbox(title, variants, precheckedIds) {
+    const list = variants || [];
+    if (!list.length) return null;
+    const pre = new Set(precheckedIds || []);
+    return new Promise((resolve) => {
+      const backdrop = document.createElement('div');
+      backdrop.className = 'variant-pick-backdrop';
+      backdrop.setAttribute('role', 'dialog');
+      backdrop.setAttribute('aria-modal', 'true');
+      const panel = document.createElement('div');
+      panel.className = 'variant-pick-panel variant-pick-multi';
+      const h = document.createElement('h2');
+      h.className = 'variant-pick-title';
+      h.textContent = title || 'Varianten wählen';
+      panel.appendChild(h);
+      const rows = document.createElement('div');
+      rows.className = 'variant-pick-checks';
+      const boxes = [];
+      for (const v of list) {
+        const row = document.createElement('label');
+        row.className = 'variant-pick-check-row';
+        const span = document.createElement('span');
+        span.className = 'variant-pick-check-label';
+        span.textContent = variantShortLabel(v) || v.label;
+        if (v.label && variantShortLabel(v) && variantShortLabel(v) !== v.label) {
+          span.title = v.label;
+        }
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'variant-pick-check';
+        cb.checked = pre.has(v.id);
+        cb.value = v.id;
+        row.appendChild(span);
+        row.appendChild(cb);
+        rows.appendChild(row);
+        boxes.push(cb);
+      }
+      panel.appendChild(rows);
+      const actions = document.createElement('div');
+      actions.className = 'variant-pick-actions';
+      const ok = document.createElement('button');
+      ok.type = 'button';
+      ok.className = 'btn touch primary';
+      ok.textContent = 'OK';
+      ok.addEventListener('click', () => {
+        const ids = boxes.filter((b) => b.checked).map((b) => b.value);
+        cleanup();
+        resolve(ids);
+      });
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'btn touch';
+      cancel.textContent = 'Abbrechen';
+      cancel.addEventListener('click', () => { cleanup(); resolve(null); });
+      actions.appendChild(ok);
+      actions.appendChild(cancel);
+      panel.appendChild(actions);
+      backdrop.appendChild(panel);
+      backdrop.addEventListener('click', (e) => {
+        if (e.target === backdrop) { cleanup(); resolve(null); }
+      });
+      document.body.appendChild(backdrop);
+      function cleanup() { try { backdrop.remove(); } catch (_) {} }
+    });
+  }
+
   function updateVariantBar() {
     const bar = document.getElementById('variantBar');
     if (!bar) return;
-    const info = document.getElementById('variantBarInfo');
     const addBtn = document.getElementById('variantAddBtn');
     const switchBtn = document.getElementById('variantSwitchBtn');
     const onlyBtn = document.getElementById('variantOnlyBtn');
-    const activeEl = document.getElementById('variantActiveLabel');
     syncVariantsFromPage();
     const variants = variantsList();
     const page = currentPage();
@@ -765,111 +1049,75 @@
     const show = !!(state.editMode && variants.length >= 2 && !hideBookendBar);
     bar.hidden = !show;
     el.app.classList.toggle('variant-bar-visible', show);
-    if (!show) return;
+    if (switchBtn) { switchBtn.hidden = true; switchBtn.setAttribute('aria-hidden', 'true'); }
+    if (!show) {
+      const host = document.getElementById('variantBarChips');
+      if (host) host.innerHTML = '';
+      return;
+    }
 
     const onLayout = page && !isFixedPage(page) && !isVariantenPage(page);
-    const scope = onLayout ? pageVariantScope(page) : 'all';
     const group = onLayout ? pageGroupIdOf(page) : null;
     const siblings = group ? pagesSharingGroup(group) : [];
-    const specialized = siblings.filter((p) => pageVariantScope(p) !== 'all');
-    const multi = specialized.length >= 1 && (scope === 'all' || specialized.length >= 1) &&
-      siblings.some((p) => pageVariantScope(p) === 'all') && specialized.length >= 1;
-
-    const statusWrap = document.getElementById('variantBarStatus');
-    if (activeEl) {
-      const av = state.activeVariantId ? variantById(state.activeVariantId) : null;
-      activeEl.textContent = av ? ('Aktiv: ' + variantShortLabel(av)) : 'Keine Variante aktiv';
-      activeEl.hidden = !av;
-    }
-    if (statusWrap) {
-      statusWrap.classList.toggle('is-multi', false); /* set below when multi */
-    }
-
-    /* v1.86: „Zwischen Varianten wechseln“ nur wenn es wirklich ≥2 Optionen
-       für die aktuelle Seite gibt (mehrere Spezialisierungen, oder Shared+≥1 Spezial
-       bei ≥2 Projektvarianten). Bei nur einer Spezial-/Exklusivseite: Button aus. */
-    const hasShared = siblings.some((p) => pageVariantScope(p) === 'all');
-    const canSwitchForPage =
-      specialized.length >= 2 ||
-      (specialized.length >= 1 && hasShared && variants.length >= 2);
+    const specialized = siblings.filter((pg) => !!pageVariantScopeIds(pg));
+    const switchOpts = buildPageVariantSwitchOptions(page);
+    renderVariantBarChips(switchOpts);
 
     if (!onLayout) {
-      if (info) {
-        info.textContent = 'Varianten: ' + variants.map((v) => variantShortLabel(v)).join(', ');
-        info.classList.remove('is-multi');
-      }
       if (addBtn) addBtn.hidden = true;
-      if (switchBtn) switchBtn.hidden = variants.length < 2;
       if (onlyBtn) onlyBtn.hidden = true;
       return;
     }
 
-    /* v1.90: „+ Variante“ aus, wenn jede Projektvariante schon eine Spezialseite
-       in dieser Gruppe hat (z. B. 2 Varianten auf Seite 1 und 2 Spezialseiten). */
+    /* + Variante aus, wenn jede Seite-1-Variante schon eine eigene Spezialseite hat
+       (Einzel-Scope; Multi-„Nur für“ zählt nicht als +Variante-Spezial). */
     const allVariantsHavePage =
       variants.length >= 2 &&
       variants.every((v) =>
-        siblings.some((pg) => pageVariantScope(pg) === v.id)
+        siblings.some((pg) => {
+          const ids = pageVariantScopeIds(pg);
+          return ids && ids.length === 1 && ids[0] === v.id;
+        })
       );
-    /* v1.90: „Nur für eine Variante“ aus, sobald die Seite schon mehrfach
-       variantenbezogen ist (≥2 Versionen in der Gruppe oder ≥1 Spezialisierung). */
     const pageAlreadyMulti =
-      siblings.length >= 2 || specialized.length >= 1 || scope !== 'all';
+      siblings.length >= 2 || specialized.length >= 1 || !!pageVariantScopeIds(page);
 
     if (addBtn) addBtn.hidden = !!allVariantsHavePage;
     if (onlyBtn) onlyBtn.hidden = !!pageAlreadyMulti;
-    if (switchBtn) switchBtn.hidden = !canSwitchForPage;
-
-    if (multi) {
-      if (info) {
-        info.textContent = 'Mehrere Varianten für diese Seite verfügbar';
-        info.classList.add('is-multi');
-      }
-      if (statusWrap) statusWrap.classList.add('is-multi');
-      /* v1.89: „Aktiv: …“ unter dem Mehrere-Hinweis, beide orange */
-      if (activeEl && state.activeVariantId) activeEl.hidden = false;
-    } else if (scope !== 'all') {
-      const v = variantById(scope);
-      if (info) {
-        info.textContent = 'Nur für Variante „' + (v ? variantShortLabel(v) : scope) + '“';
-        info.classList.remove('is-multi');
-      }
-      if (statusWrap) statusWrap.classList.remove('is-multi');
-    } else {
-      if (info) {
-        info.textContent = 'Diese Seite gilt für alle Varianten';
-        info.classList.remove('is-multi');
-      }
-      if (statusWrap) statusWrap.classList.remove('is-multi');
-    }
   }
 
   async function onVariantAddClick() {
     const variants = variantsList();
     if (variants.length < 2) return;
-    const id = await pickVariantFromList('Spezialseite für welche Variante?', variants);
+    const page = currentPage();
+    if (!page || isFixedPage(page)) return;
+    const group = pageGroupIdOf(page);
+    const siblings = pagesSharingGroup(group);
+    const used = new Set();
+    for (const pg of siblings) {
+      const ids = pageVariantScopeIds(pg);
+      if (ids && ids.length === 1) used.add(ids[0]);
+    }
+    const available = variants.filter((v) => !used.has(v.id));
+    if (!available.length) {
+      flash('Alle Varianten haben bereits eine Spezialseite');
+      updateVariantBar();
+      return;
+    }
+    const id = await pickVariantFromList('Neue Variante anlegen für', available, {
+      greyCurrent: false,
+      autoSingle: false,
+    });
     if (!id) return;
     specializeCurrentPageForVariant(id);
   }
 
   async function onVariantSwitchClick() {
-    const variants = variantsList();
-    if (variants.length < 2) return;
-    const id = await pickVariantFromList('Aktive Variante wählen', variants);
-    if (!id) return;
-    setActiveVariant(id);
+    /* v1.94: Wechsel über Chips – Legacy-Einstieg behalten */
     const page = currentPage();
-    if (page && !isFixedPage(page)) {
-      const group = pageGroupIdOf(page);
-      const spec = (state.doc.pages || []).find(
-        (p) => !isFixedPage(p) && pageGroupIdOf(p) === group && pageVariantScope(p) === id
-      );
-      if (spec) {
-        snapToIndex(state.doc.pages.indexOf(spec), true);
-        return;
-      }
-    }
-    flash('Variante: ' + (variantById(id) || {}).label);
+    const options = buildPageVariantSwitchOptions(page).filter((o) => !o.current && !o.inert);
+    if (!options.length) return;
+    await activateVariantChip(options[0]);
   }
 
   async function onVariantOnlyClick() {
@@ -877,12 +1125,21 @@
     if (!variants.length) return;
     const page = currentPage();
     if (!page || isFixedPage(page) || isVariantenPage(page)) {
-      flash('Nur Layout-Seiten können auf eine Variante beschränkt werden', 4000, 'error');
+      flash('Nur Layout-Seiten können auf Varianten beschränkt werden', 4000, 'error');
       return;
     }
-    const id = await pickVariantFromList('Diese Seite nur für welche Variante?', variants);
-    if (!id) return;
-    convertCurrentPageToVariantOnly(id);
+    const existing = pageVariantScopeIds(page) || variants.map((v) => v.id);
+    const picked = await pickVariantsMultiCheckbox(
+      'Nur für bestimmte Variante(n)',
+      variants,
+      existing
+    );
+    if (picked == null) return; /* Abbrechen */
+    if (!picked.length) {
+      flash('Bitte mindestens eine Variante wählen', 3500, 'error');
+      return;
+    }
+    convertCurrentPageToVariantSubset(picked);
   }
 
   function fehlerRowHasContent(r) {
@@ -1362,6 +1619,10 @@
     welcomeOpenBtn: document.getElementById('welcomeOpenBtn'),
     welcomeTourBtn: document.getElementById('welcomeTourBtn'),
     welcomeVersion: document.getElementById('welcomeVersion'),
+    welcomeActions: document.getElementById('welcomeActions'),
+    welcomeInitialsOverlay: document.getElementById('welcomeInitialsOverlay'),
+    welcomeInitialsInput: document.getElementById('welcomeInitialsInput'),
+    welcomeInitialsSaveBtn: document.getElementById('welcomeInitialsSaveBtn'),
     appVersion: document.getElementById('appVersion'),
     tourOverlay: document.getElementById('tourOverlay'),
     tourSpotlight: document.getElementById('tourSpotlight'),
@@ -1600,7 +1861,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.92';
+  const APP_VERSION = '1.94';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -4203,12 +4464,7 @@
           const capWrap = document.createElement('div');
           capWrap.className = 'variant-caption-wrap' + (state.editMode ? ' is-edit' : ' is-view');
           if (state.editMode) {
-            const grip = document.createElement('div');
-            grip.className = 'variant-caption-drag';
-            /* v1.91: kein ⋮⋮ / Sechs-Punkt-Griff — nur Text „Verschieben“ */
-            grip.textContent = 'Verschieben';
-            grip.setAttribute('aria-hidden', 'true');
-            capWrap.appendChild(grip);
+            /* v1.93: kein „Verschieben“-Text — Caption-Box selbst ziehbar */
             const row = document.createElement('div');
             row.className = 'variant-caption-row';
             const inp = document.createElement('input');
@@ -4269,9 +4525,8 @@
           } else {
             const lab = document.createElement('div');
             lab.className = 'variant-caption-label';
+            /* v1.93: Viewer zeigt nur den Namen, kein Kürzel in Klammern */
             lab.textContent = capText;
-            const ks = String(leafCaptionShort(cell) || '').trim();
-            if (ks) lab.textContent = capText + ' (' + ks + ')';
             capWrap.appendChild(lab);
           }
           leaf.appendChild(capWrap);
@@ -5435,9 +5690,16 @@
     /* v1.49: kein Chrome-Spacer mehr – Titelband sitzt oben, Tabelle wächst nach oben */
     const header = document.createElement('div');
     header.className = 'index-header';
-    const titleVal = (page && page.title) ? page.title : 'Arbeitsschritte';
-    if (state.editMode) {
-      /* v1.20: Index-Titel tippbar */
+    /* v1.93: Titel = Name der auf Seite 1 gewählten (aktiven) Variante, sonst Dateiname/Titel */
+    let titleVal = (page && page.title) ? page.title : 'Arbeitsschritte';
+    let titleFromVariant = false;
+    if (state.activeVariantId) {
+      const av = variantById(state.activeVariantId);
+      const nm = av ? (variantFullLabel(av) || variantShortLabel(av) || '') : '';
+      if (nm) { titleVal = nm; titleFromVariant = true; }
+    }
+    if (state.editMode && !titleFromVariant) {
+      /* v1.20: Index-Titel tippbar (nur wenn keine aktive Variante den Titel stellt) */
       const titleInput = document.createElement('input');
       titleInput.type = 'text';
       titleInput.className = 'index-header-title';
@@ -5453,6 +5715,7 @@
       const title = document.createElement('span');
       title.className = 'index-header-title';
       title.textContent = titleVal;
+      if (titleFromVariant) title.setAttribute('aria-label', 'Aktive Variante');
       header.appendChild(title);
     }
     panel.appendChild(header);
@@ -8062,6 +8325,7 @@
     const saved = setStoredDeviceNickname(raw);
     closeDeviceNicknameModal();
     refreshDeviceNicknameHint();
+    try { syncWelcomeInitialsOverlay(); } catch (_) {}
     flash(saved ? ('Initialen: ' + saved) : 'Initialen gelöscht – Plattformname wird verwendet');
   }
 
@@ -11210,6 +11474,29 @@
   if (el.welcomeNewBtn) el.welcomeNewBtn.addEventListener('click', () => { void startNewProject(); });
   if (el.welcomeOpenBtn) el.welcomeOpenBtn.addEventListener('click', () => { void load(); });
   if (el.welcomeTourBtn) el.welcomeTourBtn.addEventListener('click', () => { openTour(); });
+  /* v1.93: Willkommen-Initialen-Overlay */
+  (function bindWelcomeInitials() {
+    const inp = el.welcomeInitialsInput || document.getElementById('welcomeInitialsInput');
+    const saveBtn = el.welcomeInitialsSaveBtn || document.getElementById('welcomeInitialsSaveBtn');
+    if (inp) {
+      inp.addEventListener('input', () => {
+        const cur = inp.value;
+        const next = normalizeInitialsInput(cur);
+        if (cur !== next) {
+          const pos = inp.selectionStart;
+          inp.value = next;
+          try { inp.setSelectionRange(Math.min(pos, next.length), Math.min(pos, next.length)); } catch (_) {}
+        }
+      });
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          saveWelcomeInitials();
+        }
+      });
+    }
+    if (saveBtn) saveBtn.addEventListener('click', () => { saveWelcomeInitials(); });
+  })();
   if (el.tourSkipBtn) el.tourSkipBtn.addEventListener('click', () => { closeTour(true); });
   if (el.tourBackBtn) el.tourBackBtn.addEventListener('click', () => { tourBack(); });
   if (el.tourNextBtn) el.tourNextBtn.addEventListener('click', () => { tourNext(); });
@@ -12027,6 +12314,54 @@
     }
   }
 
+  /** v1.93: Willkommen-Initialen-Overlay (localStorage DEVICE_NICK_KEY). */
+  function syncWelcomeInitialsOverlay() {
+    const overlay = el.welcomeInitialsOverlay || document.getElementById('welcomeInitialsOverlay');
+    const actions = el.welcomeActions || document.getElementById('welcomeActions');
+    const newBtn = el.welcomeNewBtn;
+    const openBtn = el.welcomeOpenBtn;
+    const tourBtn = el.welcomeTourBtn;
+    const has = !!getStoredDeviceNickname();
+    if (overlay) overlay.hidden = has;
+    if (actions) actions.classList.toggle('initials-required', !has);
+    const disable = !has;
+    for (const b of [newBtn, openBtn, tourBtn]) {
+      if (!b) continue;
+      b.disabled = disable;
+      b.setAttribute('aria-disabled', disable ? 'true' : 'false');
+    }
+    if (!has) {
+      const inp = el.welcomeInitialsInput || document.getElementById('welcomeInitialsInput');
+      if (inp) {
+        try { inp.focus(); } catch (_) {}
+      }
+    }
+  }
+
+  function normalizeInitialsInput(raw) {
+    return String(raw == null ? '' : raw)
+      .toUpperCase()
+      .replace(/[^A-ZÄÖÜß]/g, '')
+      .slice(0, 12);
+  }
+
+  function saveWelcomeInitials() {
+    const inp = el.welcomeInitialsInput || document.getElementById('welcomeInitialsInput');
+    const raw = inp ? inp.value : '';
+    const cleaned = normalizeInitialsInput(raw);
+    if (!cleaned) {
+      flash('Bitte Initialen eintragen.', 2500, 'error');
+      if (inp) try { inp.focus(); } catch (_) {}
+      return false;
+    }
+    if (inp) inp.value = cleaned;
+    setStoredDeviceNickname(cleaned);
+    refreshDeviceNicknameHint();
+    syncWelcomeInitialsOverlay();
+    flash('Initialen: ' + cleaned);
+    return true;
+  }
+
   function showWelcomeScreen() {
     docOpen = false;
     if (el.app) el.app.classList.add('welcome-open');
@@ -12036,6 +12371,7 @@
     try { el.app && el.app.classList.add('chrome-hidden'); } catch (_) {}
     updateDateiMenuState();
     try { scheduleViewerChromeCompact(); } catch (_) {}
+    try { syncWelcomeInitialsOverlay(); } catch (_) {}
   }
 
   function hideWelcomeScreen() {

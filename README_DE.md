@@ -2,7 +2,26 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.92
+**Version:** 1.94
+
+## Neu in 1.94
+
+- **Varianten-Leiste (Editor):** Chips statt „Zwischen Varianten wechseln“. Shared: ein Chip „A, B, C“ (outlined, Klick ohne Wirkung). Nach Spezialisierung: z. B. „A“ | „B, C“ – Tippen wechselt die Seiten-Variante; aktiver Chip outlined.
+- **+ Variante:** Dialog „Neue Variante anlegen für“ mit je einem Button pro noch nicht spezialisierter Seite-1-Variante; ausgeblendet wenn alle eine eigene Seite haben.
+- **Nur für bestimmte Variante(n):** Umbenannt; Checkbox-Liste aller Varianten, OK wendet die Auswahl an (Seite nur für gewählte Varianten), Abbrechen ohne Änderung.
+- **Service Worker:** Cache `anweisungen-shell-v1.94` und `?v=1.94`.
+
+## Neu in 1.93
+
+- **Willkommen-Initialen:** Fehlen lokal gespeicherte Initialen (`localStorage` `anweisungen-device-nickname`), erscheint ein Overlay über Neues Projekt / Öffnen / Tour („Bitte Initialen eintragen.“, nur Großbuchstaben, „Initialen speichern“). Buttons erst nach Speichern nutzbar; vorhandene Initialen → Overlay nie.
+- **Varianten-Wechsel (Merge):** „Zwischen Varianten wechseln“ gruppiert Geräte ohne eigene Spezialseite zu einer Wahl („A & B“); Spezialisierungen einzeln; aktive Option ausgegraut. Wenn jede Variante eine Spezialseite hat: nur Einzeln + „+ Variante“ aus.
+- **+ Variante:** Nur noch unbenutzte Varianten wählbar; ausgeblendet wenn alle Seite-1-Varianten schon eine Spezialseite in der Gruppe haben.
+- **Nur für eine Variante:** Alle Optionen wählbar (aktive nicht ausgegraut).
+- **Stückliste:** Toolbar-Button auf der Varianten-Seite (Seite 1) ausgeblendet.
+- **Index:** Titel zeigt den Namen der aktiven Variante (Seite 1) statt des Dateinamens.
+- **Seite 1:** Wort „Verschieben“ über dem Namen entfernt (Box weiterhin ziehbar).
+- **Viewer:** Varianten-Name ohne Kürzel in Klammern.
+- **Service Worker:** Cache `anweisungen-shell-v1.93` und `?v=1.93`.
 
 ## Neu in 1.92
 
