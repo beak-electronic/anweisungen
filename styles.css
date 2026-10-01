@@ -3906,9 +3906,9 @@ html.orient-portrait .page-track {
   height: auto !important;
   max-height: none !important;
   min-height: 100%;
-  /* v2.07: schmaler schwarzer Abstand = 2× horizontale Teilungslinie (--frame-border-w = 2mm → 4mm) */
-  gap: calc(var(--frame-border-w) * 2);
-  row-gap: calc(var(--frame-border-w) * 2);
+  /* v2.08: Abstand = 1× horizontale Teilungslinie (--frame-border-w = 2mm) */
+  gap: var(--frame-border-w);
+  row-gap: var(--frame-border-w);
   transform: none !important;
   will-change: auto;
 }

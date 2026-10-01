@@ -2057,7 +2057,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.07';
+  const APP_VERSION = '2.08';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -3961,6 +3961,84 @@
     animating = false;
   }
 
+  /* v2.08: Portrait↔Landscape – aktuelle Seite behalten (pageIndex ↔ scrollTop / translateX) */
+  let portraitScrollSyncLock = false;
+  let portraitScrollSyncTimer = null;
+  /** v2.08: nach Orientierungswechsel kurz Portrait-Scroll/Track erzwingen (Settle-Timer) */
+  let orientRestoreUntil = 0;
+
+  function scrollPortraitToCurrentPage() {
+    if (!el.pageViewport || !el.pageTrack) return;
+    if (!document.documentElement.classList.contains('orient-portrait')) return;
+    const idx = remapToVisiblePageIndex(state.doc.pageIndex);
+    const slide = el.pageTrack.querySelector(':scope > .page-slide[data-page-index="' + idx + '"]');
+    if (!slide) return;
+    const vp = el.pageViewport;
+    const top = Math.max(0, Math.round(slide.offsetTop));
+    if (Math.abs(vp.scrollTop - top) < 1) return;
+    portraitScrollSyncLock = true;
+    try { vp.scrollTop = top; } catch (_) {}
+    requestAnimationFrame(() => {
+      try {
+        if (Math.abs(vp.scrollTop - top) > 1) vp.scrollTop = top;
+      } catch (_) {}
+      portraitScrollSyncLock = false;
+    });
+  }
+
+  function syncPageIndexFromPortraitScroll() {
+    if (!el.pageViewport || !el.pageTrack) return state.doc.pageIndex;
+    if (!document.documentElement.classList.contains('orient-portrait')) return state.doc.pageIndex;
+    const slides = el.pageTrack.querySelectorAll(':scope > .page-slide');
+    if (!slides.length) return state.doc.pageIndex;
+    const vp = el.pageViewport;
+    const probe = vp.scrollTop + Math.min(Math.max(24, vp.clientHeight * 0.22), 120);
+    let chosen = slides[0];
+    for (let i = 0; i < slides.length; i++) {
+      const sl = slides[i];
+      const top = sl.offsetTop;
+      const bottom = top + (sl.offsetHeight || 1);
+      if (probe >= top && probe < bottom) {
+        chosen = sl;
+        break;
+      }
+      if (probe >= bottom) chosen = sl;
+    }
+    const real = parseInt(chosen.dataset.pageIndex, 10);
+    if (!isFinite(real)) return state.doc.pageIndex;
+    if (real !== state.doc.pageIndex) {
+      state.doc.pageIndex = real;
+      try { updatePageIndicator(); } catch (_) {}
+      try { updateChromeForPage(); } catch (_) {}
+      try { scheduleRememberLastPage(); } catch (_) {}
+    }
+    return state.doc.pageIndex;
+  }
+
+  function schedulePortraitScrollPageSync() {
+    if (portraitScrollSyncLock) return;
+    if (!document.documentElement.classList.contains('orient-portrait')) return;
+    if (portraitScrollSyncTimer) clearTimeout(portraitScrollSyncTimer);
+    portraitScrollSyncTimer = setTimeout(() => {
+      portraitScrollSyncTimer = null;
+      try { syncPageIndexFromPortraitScroll(); } catch (_) {}
+    }, 80);
+  }
+
+  function restorePagePositionForOrientation() {
+    const portrait = document.documentElement.classList.contains('orient-portrait');
+    if (portrait) {
+      /* Nur nach Drehung / explizitem Restore – nicht bei jedem Resize mitten im Scroll */
+      if (Date.now() > orientRestoreUntil) return;
+      try { syncPortraitSlideSizes(); } catch (_) {}
+      try { scrollPortraitToCurrentPage(); } catch (_) {}
+    } else {
+      try { applyTrackTransform(baseOffsetForIndex(state.doc.pageIndex), false); } catch (_) {}
+    }
+    try { updateNearSlides(); } catch (_) {}
+    try { updatePageIndicator(); } catch (_) {}
+  }
+
   function applyTrackTransform(px, withAnim, durationMs) {
     if (document.documentElement.classList.contains('orient-portrait')) {
       trackOffsetPx = 0;
@@ -4010,6 +4088,7 @@
     const targetPx = baseOffsetForIndex(index);
     if (!animate) {
       applyTrackTransform(targetPx, false);
+      try { scrollPortraitToCurrentPage(); } catch (_) {}
       /* v1.48: letzte Seite gerätelokal merken */
       scheduleRememberLastPage();
       return;
@@ -4019,6 +4098,7 @@
     // Longer when farther; still gentle for short settles
     const ms = Math.round(220 + Math.min(1, dist / vw) * 360);
     applyTrackTransform(targetPx, true, clamp(ms, 280, 620));
+    try { scrollPortraitToCurrentPage(); } catch (_) {}
     /* v1.48: letzte Seite gerätelokal merken */
     scheduleRememberLastPage();
   }
@@ -6844,6 +6924,7 @@
     applyTrackTransform(baseOffsetForIndex(state.doc.pageIndex), false);
     updateNearSlides();
     updatePageScale();
+    try { scrollPortraitToCurrentPage(); } catch (_) {}
     updatePageIndicator();
     updateChromeForPage();
     rebuildBeakUsage(); /* v1.15: Abgleich/„Nicht in der Stückliste“ nach jeder Änderung aktuell */
@@ -12546,6 +12627,12 @@
   [el.pageViewport, el.pageArea, el.app].forEach((n) => {
     if (n) n.addEventListener('scroll', resetPageScrollOffsets, { passive: true });
   });
+  /* v2.08: Hochformat-Scroll → pageIndex nachführen (für Drehung zurück ins Querformat) */
+  if (el.pageViewport) {
+    el.pageViewport.addEventListener('scroll', () => {
+      try { schedulePortraitScrollPageSync(); } catch (_) {}
+    }, { passive: true });
+  }
 
   /* v1.23: Tastatur-Ausweich – translateY auf #pageViewport via visualViewport.
      Kein scrollIntoView (bricht horizontale Seitenbahn). Kein sticky Transform auf .app/html/body. */
@@ -12607,7 +12694,10 @@
         appRoot.style.transform = '';
       }
     } catch (_) {}
-    applyTrackTransform(baseOffsetForIndex(state.doc.pageIndex), false);
+    /* v2.08: nach Viewport-Recover Seite je Orientierung wiederherstellen */
+    try { restorePagePositionForOrientation(); } catch (_) {
+      applyTrackTransform(baseOffsetForIndex(state.doc.pageIndex), false);
+    }
     /* v1.23: pageViewport-kb-avoid nicht löschen solange noch getippt wird */
     if (isTypingTarget(document.activeElement)) {
       updateKbAvoid();
@@ -13587,6 +13677,11 @@
     const root = document.documentElement;
     const port = isPortraitOrientation();
     const was = root.classList.contains('orient-portrait');
+    const changed = was !== port;
+    /* v2.08: vor Portrait→Landscape Index aus Scrollposition lesen */
+    if (was && !port) {
+      try { syncPageIndexFromPortraitScroll(); } catch (_) {}
+    }
     root.classList.toggle('orient-portrait', port);
     if (el.app) el.app.classList.toggle('orient-portrait', port);
     if (port && state.editMode) {
@@ -13598,13 +13693,22 @@
         if (el.pageTrack) el.pageTrack.style.transform = '';
         trackOffsetPx = 0;
       } catch (_) {}
-    } else if (was || !port) {
+    } else {
       try { applyTrackTransform(baseOffsetForIndex(state.doc.pageIndex), false); } catch (_) {}
     }
     pageScaleValue = 0; pageScaleXValue = 0; pageScaleYValue = 0; pageRefHValue = 0;
     try { updatePageScale(); } catch (_) {}
     try { scheduleViewerChromeCompact(); } catch (_) {}
-    try { if (document.documentElement.classList.contains('orient-portrait')) updateNearSlides(); } catch (_) {}
+    try { updateNearSlides(); } catch (_) {}
+    /* v2.08: nur bei echtem Drehen Portrait-Scroll setzen (nicht bei jedem Resize) */
+    if (changed) {
+      orientRestoreUntil = Date.now() + 1200;
+      if (port) {
+        requestAnimationFrame(() => {
+          try { restorePagePositionForOrientation(); } catch (_) {}
+        });
+      }
+    }
   }
   updateOrientationLayout();
   window.addEventListener('orientationchange', () => {

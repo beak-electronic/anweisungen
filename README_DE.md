@@ -2,7 +2,13 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.07
+**Version:** 2.08
+
+## Neu in 2.08
+
+- **Hochformat-Lücke dünner:** Abstand zwischen gestapelten Seiten = **1×** die horizontale Teilungslinie (`gap: var(--frame-border-w)` ≈ 2 mm; zuvor 2× ≈ 4 mm).
+- **Seite bei Drehung behalten:** Portrait↔Landscape behält die aktuelle Seite (`pageIndex`): Querformat setzt `page-track` translateX, Hochformat `page-viewport` scrollTop; beim Verlassen des Hochformats wird der Index aus der Scrollposition gelesen.
+- **Service Worker:** Cache `anweisungen-shell-v2.08` und `?v=2.08`.
 
 ## Neu in 2.07
 
