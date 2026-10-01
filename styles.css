@@ -4110,14 +4110,17 @@ html.orient-portrait.app-h-fixed .page-viewport {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  /* v1.96: gleiche Dicke wie .topbar (8 + ~34 Chip + 8 ≈ 50px) */
+  /* v2.00: feste Außenhöhe = Topbar (8 + 34 Chip + 8 = 50), kein Extra-Wachstum */
+  height: 50px;
+  min-height: 50px;
+  max-height: 50px;
   padding: 8px 12px;
-  padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
   padding-top: 8px;
+  padding-bottom: 8px;
   padding-left: max(12px, env(safe-area-inset-left, 0px));
   padding-right: max(12px, env(safe-area-inset-right, 0px));
-  min-height: 50px;
   box-sizing: border-box;
+  overflow: hidden;
   background: transparent;
   border: none;
   border-top: none;
@@ -4288,7 +4291,9 @@ html.orient-portrait.app-h-fixed .page-viewport {
 /* ==== v1.94: Varianten-Leiste – Chips + Multi-Checkbox ==================== */
 .variant-bar {
   justify-content: space-between;
-  gap: 10px 12px;
+  gap: 8px;
+  /* v2.00: kein Wrap — eine Zeile, Höhe bleibt 50px */
+  flex-wrap: nowrap;
 }
 .variant-bar-chips {
   display: flex;
@@ -4390,23 +4395,30 @@ html.orient-portrait.app-h-fixed .page-viewport {
   flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px 12px;
+  gap: 8px;
   flex: 1 1 auto;
   width: 100%;
   min-width: 0;
+  height: 34px;
   min-height: 34px;
+  max-height: 34px;
   box-sizing: border-box;
 }
 .variant-bar:not(.is-collapsed) {
-  padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
-  min-height: 50px; /* = Topbar */
+  height: 50px;
+  min-height: 50px;
+  max-height: 50px;
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 .variant-bar.is-collapsed {
   justify-content: center;
   align-items: center;
-  min-height: 50px; /* Platz für zentrierten Toggle; Hintergrund unsichtbar */
+  height: 50px;
+  min-height: 50px;
+  max-height: 50px;
   padding-top: 8px;
-  padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  padding-bottom: 8px;
   background: transparent !important;
 }
 .variant-bar.is-collapsed .variant-bar-body {
@@ -4507,11 +4519,33 @@ html.orient-portrait.app-h-fixed .page-viewport {
   z-index: 210;
 }
 .laufzettel-frame {
-  /* ~iPad portrait short side / ~60% landscape — not full width */
+  /* v2.00 Landscape: schmal (~iPad-Kurzseite / Stückliste-Stil) */
   width: min(768px, 60vw, calc(100vw - 48px));
   max-width: 768px;
   height: min(92vh, calc(100dvh - 28px));
   margin: 0 auto;
+}
+/* v2.00 Portrait: nahezu Vollbild */
+@media (orientation: portrait) {
+  .laufzettel-lightbox {
+    padding: 8px;
+  }
+  .laufzettel-frame {
+    width: calc(100vw - 16px);
+    max-width: none;
+    height: calc(100dvh - 16px);
+    max-height: calc(100dvh - 16px);
+  }
+}
+@media (orientation: portrait) and (max-height: 900px) {
+  .laufzettel-lightbox {
+    padding: 6px;
+  }
+  .laufzettel-frame {
+    width: calc(100vw - 12px);
+    height: calc(100dvh - 12px);
+    max-height: calc(100dvh - 12px);
+  }
 }
 .laufzettel-iframe-wrap {
   flex: 1 1 auto;
@@ -4527,7 +4561,11 @@ html.orient-portrait.app-h-fixed .page-viewport {
   background: #fff;
 }
 .laufzettel-topbar #laufzettelHomeBtn {
-  margin-left: auto;
+  /* v2.00: entfernt — ✕ schließt; postMessage closed lädt Auswahl neu */
+  display: none !important;
+}
+.laufzettel-topbar .beak-pdf-title {
+  margin-right: auto;
 }
 .ann-button-action {
   display: block;

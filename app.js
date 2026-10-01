@@ -494,13 +494,29 @@
     return state.doc.pages.indexOf(nav[0]);
   }
 
-  /** 1-basierte Zielseite (Index/Button) → reale pageIndex für aktive Variante. */
+  /** 1-basierte Zielseite (Index/Button) → reale pageIndex.
+   *  v2.00: Nummer = Anzeige/Navigation der **aktiven Variante** (wie „36 / N“),
+   *  nicht der rohe Absolute-Index in doc.pages (Varianten-Kopien verschieben den). */
   function resolveTargetPageRealIndex(tp) {
     if (typeof tp !== 'number' || !isFinite(tp)) return -1;
     const n = Math.round(tp);
+    if (n < 1) return -1;
+    const nav = getNavPages();
+    if (n <= nav.length) {
+      const page = nav[n - 1];
+      const real = state.doc.pages.indexOf(page);
+      return real >= 0 ? real : -1;
+    }
+    /* Fallback: Absolute-Index (ältere Projekte / Nummer > Nav-Länge) */
     const pages = state.doc.pages || [];
-    if (n < 1 || n > pages.length) return -1;
-    return remapToVisiblePageIndex(n - 1);
+    if (n <= pages.length) return remapToVisiblePageIndex(n - 1);
+    return -1;
+  }
+
+  /** Max. Zielseiten-Nummer für Eingabefelder (= Länge der aktuellen Nav). */
+  function targetPageInputMax() {
+    const n = getNavPages().length;
+    return Math.max(1, n || ((state.doc.pages || []).length) || 1);
   }
 
   function navIndexOfPageIndex(realIdx) {
@@ -1985,7 +2001,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.99';
+  const APP_VERSION = '2.00';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -2766,6 +2782,7 @@
   }
 
   function onLaufzettelChromeHome() {
+    /* v2.00: Chrome-„Auswahl“ entfernt. Weiter für postMessage/home und falls DOM-ID noch da. */
     reloadGeraeteLaufzettelSelection();
   }
 
@@ -5569,10 +5586,10 @@
           targetInput.type = 'number';
           targetInput.className = 'ann-button-target';
           targetInput.min = '1';
-          targetInput.max = String(Math.max(1, state.doc.pages.length));
+          targetInput.max = String(targetPageInputMax());
           targetInput.step = '1';
           targetInput.value = a.targetPage > 0 ? String(a.targetPage) : '';
-          targetInput.title = 'Zielseite';
+          targetInput.title = 'Zielseite (Nummer wie in der Anzeige)';
           targetInput.placeholder = 'Seite';
           targetInput.addEventListener('pointerdown', (e) => {
             e.stopPropagation();
@@ -5945,10 +5962,10 @@
       targetInput.type = 'number';
       targetInput.className = 'index-target';
       targetInput.min = '1';
-      targetInput.max = String(Math.max(1, state.doc.pages.length));
+      targetInput.max = String(targetPageInputMax());
       targetInput.step = '1';
       targetInput.value = row.targetPage > 0 ? String(row.targetPage) : '';
-      targetInput.title = 'Zielseite';
+      targetInput.title = 'Zielseite (Nummer wie in der Anzeige, z. B. 36 / N)';
       targetInput.addEventListener('pointerdown', (e) => e.stopPropagation());
       targetInput.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
       targetInput.addEventListener('input', () => {
@@ -6921,6 +6938,7 @@
   }
 
   function renumberPageRefsAfterDelete(deletedPageNum) {
+    /* deletedPageNum = 1-basierte Nav-Position (Anzeige), nicht Absolute-Index */
     if (!(deletedPageNum >= 1)) return;
     for (const p of state.doc.pages) {
       if (!p) continue;
@@ -6961,10 +6979,12 @@
     stopLiveCamera();
     const idx = state.doc.pageIndex;
     const deleted = state.doc.pages[idx];
-    const deletedPageNum = idx + 1;
+    /* v2.00: Zielseiten sind Nav-Nummern — vor dem Splice Nav-Position merken */
+    const navBefore = getNavPages();
+    const deletedNavNum = navBefore.indexOf(deleted) + 1; /* 0 = nicht in aktueller Nav */
     state.doc.pages.splice(idx, 1);
     clearFehlerRowsForDeletedPage(deleted, state.doc.pages);
-    renumberPageRefsAfterDelete(deletedPageNum);
+    renumberPageRefsAfterDelete(deletedNavNum);
     state.doc.pages = ensureBookends(state.doc.pages);
     const next = clamp(idx - 1, 0, state.doc.pages.length - 1);
     state.selectedId = null;
@@ -13583,6 +13603,9 @@
       remap: (i) => remapToVisiblePageIndex(i),
       resolveTarget: (tp) => resolveTargetPageRealIndex(tp),
       goToTarget: (tp) => goToTargetPage(tp),
+      getNavLen: () => getNavPages().length,
+      navIndexOf: (real) => navIndexOfPageIndex(real),
+      realFromNav: (navIdx) => realIndexFromNavIndex(navIdx),
       goToReal: (i) => goToPage(i),
       setActiveVariantId: (id) => setActiveVariant(id),
       setIndexRow: (text, tp) => {

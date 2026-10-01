@@ -2,7 +2,14 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.99
+**Version:** 2.00
+
+## Neu in 2.00
+
+- **Index-Zielseite = Anzeigenummer:** Arbeitsschritte-/Button-Ziele nutzen die Nummer aus der Seitenanzeige (Nav der aktiven Variante), nicht den internen Absolute-Index — „Seite 36“ öffnet die 36. Seite im aktuellen Varianten-Pfad.
+- **Varianten-Leiste = Topbar-Höhe:** Feste Außenhöhe 50px (8+34+8), Chips/Toggle/Actions in einer Zeile zentriert — kein Extra-Padding/Safe-Area das die Leiste dicker macht als die Topbar.
+- **Geräte Laufzettel Overlay:** Portrait nahezu fullscreen; Landscape weiterhin schmal (~768px/60vw). Chrome-Button „Auswahl“ entfernt (✕ schließt; `postMessage` closed/home lädt die Laufzettel-Startseite weiterhin neu).
+- **Service Worker:** Cache `anweisungen-shell-v2.00` und `?v=2.00`.
 
 ## Neu in 1.99
 
