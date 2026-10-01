@@ -2,7 +2,14 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.03
+**Version:** 2.04
+
+## Neu in 2.04
+
+- **iOS/iPadOS 26/27 Blur:** Chrome ohne `backdrop-filter` (Topbar/Varianten-Leiste solide); `ios-pwa-status-strip` wie andere BEAK-Apps gegen Scroll-Pocket-Blur.
+- **Windows-Icon:** wieder abgerundet (transparente Ecken, Radius ~22 % wie andere BEAK-Apps).
+- **Varianten-Kürzel (Editor):** Schrift im Kürzel-Feld schwarz auf hellem Hintergrund — besser lesbar.
+- **Service Worker:** Cache `anweisungen-shell-v2.04` und `?v=2.04`.
 
 ## Neu in 2.03
 
