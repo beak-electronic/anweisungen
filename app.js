@@ -271,18 +271,33 @@
 
   function bindVariantCaptionDrag(capWrap, leafEl, cell) {
     if (!capWrap || !leafEl || !state.editMode) return;
+    /* v2.03: ganzer Wrap ziehbar (Name+Kürzel+Ecken). Inputs: Tippen=Edit;
+       Ziehen ab ~8px Schwelle. Während Fokus im Input kein Drag von diesem Feld. */
+    const DRAG_THRESH2 = 64; /* 8px² */
+    let armed = false;
     let dragging = false;
     let startX = 0, startY = 0, origLeft = 0, origTop = 0, pointerId = null;
+    let fromInput = null;
 
-    const onMove = (e) => {
-      if (!dragging || (pointerId != null && e.pointerId !== pointerId)) return;
-      e.preventDefault();
+    const cleanup = (e) => {
+      armed = false;
+      dragging = false;
+      pointerId = null;
+      fromInput = null;
+      capWrap.classList.remove('is-dragging');
+      try { if (e) capWrap.releasePointerCapture(e.pointerId); } catch (_) {}
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+
+    const applyPos = (clientX, clientY) => {
       const lw = leafEl.clientWidth || 1;
       const lh = leafEl.clientHeight || 1;
       const ww = capWrap.offsetWidth || 0;
       const wh = capWrap.offsetHeight || 0;
-      let left = origLeft + (e.clientX - startX);
-      let top = origTop + (e.clientY - startY);
+      let left = origLeft + (clientX - startX);
+      let top = origTop + (clientY - startY);
       left = Math.min(Math.max(0, left), Math.max(0, lw - ww));
       top = Math.min(Math.max(0, top), Math.max(0, lh - wh));
       capWrap.style.left = left + 'px';
@@ -291,34 +306,60 @@
       cell.captionY = top / lh;
     };
 
+    const onMove = (e) => {
+      if (!armed || (pointerId != null && e.pointerId !== pointerId)) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (!dragging) {
+        if ((dx * dx + dy * dy) < DRAG_THRESH2) return;
+        dragging = true;
+        e.preventDefault();
+        if (fromInput) { try { fromInput.blur(); } catch (_) {} }
+        capWrap.classList.add('is-dragging');
+        try { capWrap.setPointerCapture(e.pointerId); } catch (_) {}
+      }
+      e.preventDefault();
+      applyPos(e.clientX, e.clientY);
+    };
+
     const onUp = (e) => {
-      if (!dragging || (pointerId != null && e.pointerId !== pointerId)) return;
-      dragging = false;
-      pointerId = null;
-      capWrap.classList.remove('is-dragging');
-      try { capWrap.releasePointerCapture(e.pointerId); } catch (_) {}
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
-      syncVariantsFromPage();
-      updateVariantBar();
-      if (typeof historyCommit === 'function') historyCommit();
+      if (!armed || (pointerId != null && e.pointerId !== pointerId)) return;
+      const wasDrag = dragging;
+      const inp = fromInput;
+      cleanup(e);
+      if (wasDrag) {
+        syncVariantsFromPage();
+        updateVariantBar();
+        if (typeof historyCommit === 'function') historyCommit();
+      } else if (inp && document.activeElement !== inp) {
+        try { inp.focus(); } catch (_) {}
+      }
     };
 
     const startDrag = (e) => {
       if (!state.editMode) return;
-      if (e.target.closest('.variant-caption-input') || e.target.closest('.variant-kuerzel-input')) return;
       if (e.button != null && e.button !== 0) return;
-      e.preventDefault();
-      e.stopPropagation();
-      dragging = true;
+      const onCorner = !!e.target.closest('.variant-caption-corner');
+      const immediateDrag = onCorner;
+      const inp = e.target.closest('.variant-caption-input, .variant-kuerzel-input');
+      /* Tippen/Markieren im fokussierten Feld = Edit, kein Drag */
+      if (inp && document.activeElement === inp && !immediateDrag) return;
+      armed = true;
+      dragging = false;
       pointerId = e.pointerId;
+      fromInput = immediateDrag ? null : (inp || null);
       startX = e.clientX;
       startY = e.clientY;
       origLeft = parseFloat(capWrap.style.left) || 0;
       origTop = parseFloat(capWrap.style.top) || 0;
-      capWrap.classList.add('is-dragging');
-      try { capWrap.setPointerCapture(e.pointerId); } catch (_) {}
+      e.stopPropagation();
+      /* L-Ecken: sofort ziehen (kein 8px-Threshold) */
+      if (immediateDrag) {
+        dragging = true;
+        e.preventDefault();
+        capWrap.classList.add('is-dragging');
+        try { capWrap.setPointerCapture(e.pointerId); } catch (_) {}
+      }
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
       window.addEventListener('pointercancel', onUp);
@@ -2001,7 +2042,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.02';
+  const APP_VERSION = '2.03';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -4744,6 +4785,14 @@
           const capWrap = document.createElement('div');
           capWrap.className = 'variant-caption-wrap' + (state.editMode ? ' is-edit' : ' is-view');
           if (state.editMode) {
+            /* v2.03: nur L-Ecken + unsichtbare Eck-Hit-Areas (kein 3-Punkt-Griff) */
+            ['tl', 'tr', 'bl', 'br'].forEach((pos) => {
+              const hit = document.createElement('div');
+              hit.className = 'variant-caption-corner variant-caption-corner-' + pos;
+              hit.setAttribute('aria-hidden', 'true');
+              hit.title = 'Verschieben';
+              capWrap.appendChild(hit);
+            });
             /* v1.93: kein „Verschieben“-Text — Caption-Box selbst ziehbar */
             const row = document.createElement('div');
             row.className = 'variant-caption-row';
@@ -4753,8 +4802,7 @@
             inp.placeholder = 'Name der Variante';
             inp.value = leafCaption(cell);
             inp.setAttribute('aria-label', 'Name der Variante');
-            inp.addEventListener('pointerdown', (e) => e.stopPropagation());
-            inp.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+            /* v2.03: kein stopPropagation — Wrap-Drag mit Schwelle; Fokus bleibt Tippen */
             inp.addEventListener('input', () => {
               cell.caption = inp.value;
               if (!cell.variantId) cell.variantId = uid('v');
@@ -4781,8 +4829,6 @@
             kInp.maxLength = 12;
             kInp.value = leafCaptionShort(cell);
             kInp.setAttribute('aria-label', 'Kürzel der Variante');
-            kInp.addEventListener('pointerdown', (e) => e.stopPropagation());
-            kInp.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
             kInp.addEventListener('input', () => {
               cell.captionShort = kInp.value;
               if (!cell.variantId) cell.variantId = uid('v');

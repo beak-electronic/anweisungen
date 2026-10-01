@@ -2,7 +2,13 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.02
+**Version:** 2.03
+
+## Neu in 2.03
+
+- **Varianten-Caption Drag:** Ganzer Block (Name + Kürzel + L-Ecken) ziehbar; Textfelder tippen zum Editieren, Ziehen ab kurzer Schwelle. Während Fokus im Feld kein Drag von dort.
+- **Editor Caption:** L-Ecken zum Ziehen (Eck-Hit-Areas); kein Punkt-Griff.
+- **Service Worker:** Cache `anweisungen-shell-v2.03` und `?v=2.03`.
 
 ## Neu in 2.02
 

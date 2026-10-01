@@ -3992,16 +3992,66 @@ html.orient-portrait.app-h-fixed .page-viewport {
   padding: 0;
   cursor: grab;
 }
+.variant-caption-wrap.is-edit .variant-caption-row,
+.variant-caption-wrap.is-edit .variant-kuerzel-wrap,
+.variant-caption-wrap.is-edit .variant-kuerzel-label {
+  cursor: grab;
+}
+.variant-caption-wrap.is-edit .variant-caption-input,
+.variant-caption-wrap.is-edit .variant-kuerzel-input {
+  cursor: grab;
+}
+.variant-caption-wrap.is-edit .variant-caption-input:focus,
+.variant-caption-wrap.is-edit .variant-kuerzel-input:focus {
+  cursor: text;
+}
+
+/* v2.03: Hit-Areas auf den pinken L-Ecken (sofort Drag); kein 3-Punkt-Griff */
+.variant-caption-wrap.is-view .variant-caption-corner {
+  display: none !important;
+}
+
+.variant-caption-wrap.is-edit .variant-caption-corner {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  z-index: 4;
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+  /* unsichtbar, aber tippbar — liegt über den gezeichneten L-Armen */
+  background: transparent;
+}
+.variant-caption-wrap.is-edit.is-dragging .variant-caption-corner {
+  cursor: grabbing;
+}
+.variant-caption-wrap.is-edit .variant-caption-corner-tl {
+  left: -10px;
+  top: -10px;
+}
+.variant-caption-wrap.is-edit .variant-caption-corner-tr {
+  right: -10px;
+  top: -10px;
+}
+.variant-caption-wrap.is-edit .variant-caption-corner-bl {
+  left: -10px;
+  bottom: -10px;
+}
+.variant-caption-wrap.is-edit .variant-caption-corner-br {
+  right: -10px;
+  bottom: -10px;
+}
+
 /* v2.02 C: vier L-Ecken (Design-Auswahl) nur im Editor — Text-Ursprung unverändert */
 .variant-caption-wrap.is-edit::before {
   content: '';
   position: absolute;
-  inset: -8px;
+  inset: -10px;
   pointer-events: none;
   z-index: 2;
   --cap-accent: #dd007a;
-  --cap-len: 14px;
-  --cap-th: 2.5px;
+  --cap-len: 16px;
+  --cap-th: 3px;
   background:
     linear-gradient(var(--cap-accent), var(--cap-accent)) left top / var(--cap-len) var(--cap-th) no-repeat,
     linear-gradient(var(--cap-accent), var(--cap-accent)) left top / var(--cap-th) var(--cap-len) no-repeat,
