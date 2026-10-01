@@ -3891,7 +3891,7 @@ html.overlay-scroll, html.overlay-scroll body { touch-action: auto; }
 }
 
 
-/* ---- v1.81/v1.83: Hochformat – ALLE Seiten vertikal stapeln, scrollen; Editor aus ---- */
+/* ---- v1.81/v1.83/v2.07: Hochformat – Seiten dicht stapeln; Editor aus ---- */
 html.orient-portrait .page-viewport {
   overflow-x: hidden;
   overflow-y: auto;
@@ -3903,10 +3903,12 @@ html.orient-portrait .page-track {
   display: flex;
   flex-direction: column;
   width: 100%;
-  height: auto;
+  height: auto !important;
+  max-height: none !important;
   min-height: 100%;
-  /* Abstand zwischen gestapelten Seiten ≈ 2× Foto-Trennlinie (2mm → 4mm) */
+  /* v2.07: schmaler schwarzer Abstand = 2× horizontale Teilungslinie (--frame-border-w = 2mm → 4mm) */
   gap: calc(var(--frame-border-w) * 2);
+  row-gap: calc(var(--frame-border-w) * 2);
   transform: none !important;
   will-change: auto;
 }
@@ -3914,13 +3916,18 @@ html.orient-portrait .page-track.animating {
   transition: none;
 }
 html.orient-portrait .page-slide {
-  flex: 0 0 auto;
-  width: 100%;
-  height: auto;
+  /* v2.07: !important gegen app-h-fixed / Flex-Basis 100% / cqh-Stretch */
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0 !important;
   aspect-ratio: 1180 / 792;
-  max-height: none;
   /* cqh gegen height:auto ist zirkulär und erzeugte Riesen-Lücken */
-  container-type: normal;
+  container-type: normal !important;
+  /* Flex-Row: nicht die Stage auf Slide-Höhe strecken (Rest = Schwarz) */
+  align-items: flex-start !important;
+  justify-content: center;
 }
 /* v1.82/v1.83: .far darf im Stapel nicht collapsen (content-visibility) */
 html.orient-portrait .page-slide.far {
@@ -3930,11 +3937,12 @@ html.orient-portrait .page-slide.far {
 }
 /* Stage füllt die Slide-Breite; Höhe aus Aspect – kein 100%-Restschwarz unter der Seite */
 html.orient-portrait .stage {
-  width: 100%;
-  height: auto;
-  max-width: 100%;
-  max-height: none;
-  aspect-ratio: 1180 / 792;
+  width: 100% !important;
+  height: auto !important;
+  max-width: 100% !important;
+  max-height: none !important;
+  aspect-ratio: 1180 / 792 !important;
+  flex-shrink: 0;
 }
 html.orient-portrait .stage-inner {
   position: absolute;
@@ -3943,20 +3951,22 @@ html.orient-portrait .stage-inner {
   transform: scale(var(--page-scale, 1));
   transform-origin: 0 0;
 }
-/* Fill-Klassen im Hochformat: trotzdem width-fit wie Fenster (Stapel), kein Stretch-Fill */
-html.orient-portrait.stage-ipad-fill .page-slide {
+/* Fill-Klassen im Hochformat: width-fit wie Fenster (Stapel), kein Stretch-Fill */
+html.orient-portrait.stage-ipad-fill .page-slide,
+html.orient-portrait.stage-ipad-window .page-slide {
   justify-content: center;
-  align-items: stretch;
+  align-items: flex-start !important;
 }
 html.orient-portrait.stage-ipad-fill .stage,
 html.orient-portrait.stage-ipad-window .stage {
-  width: 100%;
-  height: auto;
-  aspect-ratio: 1180 / 792;
-  max-height: none;
+  width: 100% !important;
+  height: auto !important;
+  aspect-ratio: 1180 / 792 !important;
+  max-height: none !important;
   background: var(--stage-bg, #000);
 }
-html.orient-portrait.stage-ipad-fill .stage-inner {
+html.orient-portrait.stage-ipad-fill .stage-inner,
+html.orient-portrait.stage-ipad-window .stage-inner {
   left: 0;
   top: 0;
   transform: scale(var(--page-scale, 1));
@@ -3967,7 +3977,7 @@ html.orient-portrait .editor-btn {
   display: none !important;
 }
 
-/* v1.83 CRITICAL: html.app-h-fixed setzt .page-slide { height:100% !important } –
+/* v1.83/v2.07 CRITICAL: html.app-h-fixed setzt .page-slide { height:100% !important } –
    im Hochformat würde jede Seite viewport-hoch → riesige schwarze Lücken (iPad;
    Windows ohne app-h-fixed war ok). Stapel braucht height:auto. */
 html.orient-portrait.app-h-fixed .page-track {
@@ -3978,11 +3988,29 @@ html.orient-portrait.app-h-fixed .page-track {
 html.orient-portrait.app-h-fixed .page-slide {
   height: auto !important;
   max-height: none !important;
+  min-height: 0 !important;
   flex: 0 0 auto !important;
 }
 html.orient-portrait.app-h-fixed .page-viewport {
   height: 100% !important;
   max-height: 100% !important;
+}
+
+/* v2.07: Container-Query-Stage (100cqh) im Hochformat hart aus – sonst Viewport-Höhe */
+@supports (width: 1cqw) {
+  html.orient-portrait .page-slide,
+  html.orient-portrait.stage-ipad-fill .page-slide,
+  html.orient-portrait.stage-ipad-window .page-slide {
+    container-type: normal !important;
+  }
+  html.orient-portrait .stage,
+  html.orient-portrait.stage-ipad-fill .stage,
+  html.orient-portrait.stage-ipad-window .stage {
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    aspect-ratio: 1180 / 792 !important;
+  }
 }
 
 

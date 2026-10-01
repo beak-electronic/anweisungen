@@ -2057,7 +2057,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.06';
+  const APP_VERSION = '2.07';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -6747,8 +6747,46 @@
   let pageScaleXValue = 0;
   let pageScaleYValue = 0;
   let pageRefHValue = 0;
+  /* v2.07: Hochformat – Slide/Stage-Höhe explizit = Breite×Aspect, kein Viewport-Schwarzgap.
+     Querformat: Inline-Maße wieder entfernen (Landscape-Swipe unverändert). */
+  function syncPortraitSlideSizes() {
+    if (!el.pageTrack) return;
+    const portrait = document.documentElement.classList.contains('orient-portrait');
+    const slides = el.pageTrack.querySelectorAll(':scope > .page-slide');
+    slides.forEach((sl) => {
+      const stage = sl.querySelector(':scope > .stage');
+      if (!portrait) {
+        sl.style.removeProperty('height');
+        sl.style.removeProperty('flex');
+        sl.style.removeProperty('max-height');
+        sl.style.removeProperty('min-height');
+        if (stage) {
+          stage.style.removeProperty('height');
+          stage.style.removeProperty('width');
+          stage.style.removeProperty('max-height');
+          stage.style.removeProperty('aspect-ratio');
+        }
+        return;
+      }
+      const w = sl.clientWidth || (el.pageViewport && el.pageViewport.clientWidth) || 0;
+      if (!(w > 0)) return;
+      const h = Math.round((w * ASPECT_H / ASPECT_W) * 1000) / 1000;
+      sl.style.setProperty('height', h + 'px', 'important');
+      sl.style.setProperty('max-height', 'none', 'important');
+      sl.style.setProperty('min-height', '0', 'important');
+      sl.style.setProperty('flex', '0 0 auto', 'important');
+      if (stage) {
+        stage.style.setProperty('width', '100%', 'important');
+        stage.style.setProperty('height', h + 'px', 'important');
+        stage.style.setProperty('max-height', 'none', 'important');
+        stage.style.setProperty('aspect-ratio', ASPECT_W + ' / ' + ASPECT_H, 'important');
+      }
+    });
+  }
+
   function updatePageScale() {
     if (!el.pageTrack) return;
+    try { syncPortraitSlideSizes(); } catch (_) {}
     const stage = el.pageTrack.querySelector('.stage');
     if (!stage) return;
     const rect = stage.getBoundingClientRect();

@@ -2,7 +2,12 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.06
+**Version:** 2.07
+
+## Neu in 2.07
+
+- **Hochformat: große schwarze Lücke weg:** Gestapelte Seiten nicht mehr viewport-hoch (`app-h-fixed`/`100cqh` → `height:auto` + Aspect, JS-Sync). Zwischen den Seiten bleibt ein schmaler schwarzer Streifen = **2×** die horizontale Teilungslinie (`gap: calc(var(--frame-border-w) * 2)` ≈ 4 mm). Querformat-Wischen unverändert.
+- **Service Worker:** Cache `anweisungen-shell-v2.07` und `?v=2.07`.
 
 ## Neu in 2.06
 
