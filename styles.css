@@ -4428,6 +4428,26 @@ html.orient-portrait.app-h-fixed .page-viewport {
   margin-left: 0 !important;
 }
 
+/* v2.05: ± Seite — [hidden] muss display:inline-flex !important der Dual-Btns schlagen */
+#removePageBtn[hidden],
+#addPageBtn[hidden] {
+  display: none !important;
+}
+
+/* Varianten / Fehleranalyse: nur „Alle Seiten“ → standalone rund */
+.app.edit-mode.varianten-page-active #overviewBtnEdit.tool-dual-btn.btn.icon-btn,
+.app.edit-mode.fehler-page-active #overviewBtnEdit.tool-dual-btn.btn.icon-btn {
+  border-radius: 8px !important;
+  margin-left: 0 !important;
+}
+
+/* Index: Alle Seiten | + Seite — linke Rundung an Alle Seiten (remove ist hidden, kein :first-child) */
+.app.edit-mode.index-page-active #overviewBtnEdit.tool-dual-btn.btn.icon-btn {
+  border-radius: 8px 0 0 8px !important;
+  margin-left: 0 !important;
+}
+
+
 
 
 

@@ -2,14 +2,19 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.04
+**Version:** 2.05
+
+## Neu in 2.05
+
+- **Editor Seite 1 (Varianten):** Finger-Wischen zur Index-Tabelle (vorwärts); Rückwärts Index→Varianten wie gehabt. Viewer bleibt ohne Wischen von Seite 1.
+- **Toolbar ± Seite:** Varianten & Fehleranalyse ohne ± (nur „Alle Seiten“, rund); Index ohne − (Alle Seiten links rund | + Seite); Layout-Seiten unverändert.
+- **Service Worker:** Cache `anweisungen-shell-v2.05` und `?v=2.05`.
 
 ## Neu in 2.04
 
 - **iOS/iPadOS 26/27 Blur:** Chrome ohne `backdrop-filter` (Topbar/Varianten-Leiste solide); `ios-pwa-status-strip` wie andere BEAK-Apps gegen Scroll-Pocket-Blur.
 - **Windows-Icon:** wieder abgerundet (transparente Ecken, Radius ~22 % wie andere BEAK-Apps).
 - **Varianten-Kürzel (Editor):** Schrift im Kürzel-Feld schwarz auf hellem Hintergrund — besser lesbar.
-- **Service Worker:** Cache `anweisungen-shell-v2.04` und `?v=2.04`.
 
 ## Neu in 2.03
 

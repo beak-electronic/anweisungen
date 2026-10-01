@@ -168,9 +168,10 @@
     return isFixedPage(page) || isVariantenPage(page);
   }
 
-  /** v1.91: Von der Varianten-Seite nur per Varianten-Foto weiter (nicht Wischen/Pfeile). */
+  /** v1.91/v2.05: Viewer: Varianten-Seite nur per Foto weiter (kein Wischen/Pfeile).
+      Editor: Wischen/Pfeile zur Index-Tabelle (und zurück) erlaubt. */
   function variantenPageExitLocked() {
-    return isVariantenPage(currentPage());
+    return isVariantenPage(currentPage()) && !state.editMode;
   }
 
 
@@ -1653,6 +1654,20 @@
       if (state.teleportMode) setTeleportMode(false);
       if (state.annTool) setAnnTool(null);
     }
+    /* v2.05: ± Seite je Bookend — Varianten/Fehler: keines; Index: nur +; Layout: beide.
+       Außerhalb Edit: hidden zurücksetzen (.edit-tools blendet die Gruppe ohnehin aus). */
+    try {
+      const remHide = !!(state.editMode && (onVarianten || onIndex || onFehler));
+      const addHide = !!(state.editMode && (onVarianten || onFehler));
+      if (el.removePageBtn) {
+        el.removePageBtn.hidden = remHide;
+        el.removePageBtn.setAttribute('aria-hidden', remHide ? 'true' : 'false');
+      }
+      if (el.addPageBtn) {
+        el.addPageBtn.hidden = addHide;
+        el.addPageBtn.setAttribute('aria-hidden', addHide ? 'true' : 'false');
+      }
+    } catch (_) {}
     try { updateHighlightToolUI(); } catch (_) {}
   }
 
@@ -2042,7 +2057,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.04';
+  const APP_VERSION = '2.05';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -4442,8 +4457,8 @@
     navTarget = clamp(navTarget, 0, pageCountNav - 1);
     let target = realIndexFromNavIndex(navTarget);
     const prev = state.doc.pageIndex;
-    /* v1.91: Varianten-Seite nicht per Wischen verlassen */
-    if (isVariantenPage(state.doc.pages[prev]) && target !== prev) {
+    /* v1.91/v2.05: Viewer: Varianten-Seite nicht per Wischen verlassen; Editor ok */
+    if (variantenPageExitLocked() && target !== prev) {
       target = prev;
       navTarget = navIndexOfPageIndex(prev);
     }
@@ -12154,7 +12169,7 @@
   });
 
   /* Page navigation: → next, ← previous — v1.89: über getNavPages() wie Wischen
-     v1.91: auf Varianten-Seite keine Pfeil-Navigation (nur Foto-Tipp → Arbeitsschritte). */
+     v1.91/v2.05: Viewer auf Varianten-Seite keine Pfeile; Editor erlaubt. */
   window.addEventListener('keydown', (e) => {
     if (e.defaultPrevented) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
