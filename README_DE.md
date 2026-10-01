@@ -2,7 +2,12 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.94
+**Version:** 1.95
+
+## Neu in 1.95
+
+- **+ Variante:** Ausgeblendet, sobald die Anzahl der Varianten-Chips der Anzahl der benannten Geräte auf Seite 1 entspricht (z. B. A | B | C) — auch wenn das letzte Gerät noch allein auf der Shared-Seite liegt. Ebenso ausgeblendet, wenn für „Neue Variante anlegen für“ keine Geräte mehr übrig sind (Shared-Rest &lt; 2).
+- **Service Worker:** Cache `anweisungen-shell-v1.95` und `?v=1.95`.
 
 ## Neu in 1.94
 

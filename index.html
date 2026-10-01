@@ -24,7 +24,7 @@
   <link rel="apple-touch-icon" sizes="152x152" href="apple-touch-icon-152.png" />
   <link rel="apple-touch-icon" sizes="120x120" href="apple-touch-icon-120.png" />
   <title>Anweisungen</title>
-  <link rel="stylesheet" href="styles.css?v=1.94" />
+  <link rel="stylesheet" href="styles.css?v=1.95" />
 </head>
 <body>
   <div class="app" id="app">
@@ -108,7 +108,7 @@
         <button type="button" class="btn sm" id="variantAddBtn" title="Neue Variante anlegen">+ Variante</button>
         <button type="button" class="btn sm" id="variantOnlyBtn" title="Aktuelle Seite nur für bestimmte Varianten">Nur für bestimmte Variante(n)</button>
       </div>
-      <!-- v1.94: switch-Button entfernt – Wechsel über Chips; DOM-ID bleibt versteckt für Alt-Skripte -->
+      <!-- v1.95: switch-Button entfernt – Wechsel über Chips; DOM-ID bleibt versteckt für Alt-Skripte -->
       <button type="button" class="btn sm" id="variantSwitchBtn" hidden aria-hidden="true" tabindex="-1">Zwischen Varianten wechseln</button>
       <div class="variant-bar-status" id="variantBarStatus" hidden>
         <span class="variant-bar-info" id="variantBarInfo"></span>
@@ -175,7 +175,7 @@
           oder als Home-Bildschirm-App nutzen. Nach dem ersten Laden hält der Service Worker die App-Shell offline bereit. Nach Viewport-/Statusleisten-Updates die Home-Bildschirm-App neu anlegen. Kein Backend, kein Upload-Link nötig. Projektdateien (<code>.beak</code>) werden nicht in den Offline-Cache gelegt.
         </div>
       </details>
-      <div class="drawer-version" id="appVersion">Anweisungen · Version 1.94</div>
+      <div class="drawer-version" id="appVersion">Anweisungen · Version 1.95</div>
     </nav>
 
     <main class="page" id="pageArea">
@@ -206,7 +206,7 @@
         </div>
       </div>
       <p class="welcome-hint">Projekte speichern Sie als <code>.beak</code>-Datei. Beim Start erscheint immer dieser Willkommensbildschirm — Öffnen lädt eine Datei.</p>
-      <p class="welcome-version" id="welcomeVersion">Anweisungen · Version 1.94</p>
+      <p class="welcome-version" id="welcomeVersion">Anweisungen · Version 1.95</p>
     </div>
   </div>
 
@@ -316,6 +316,6 @@
 
   <script src="vendor/jszip.min.js"></script>
   <script src="vendor/pdf-lib.min.js"></script>
-  <script src="app.js?v=1.94"></script>
+  <script src="app.js?v=1.95"></script>
 </body>
 </html>

@@ -1035,6 +1035,25 @@
     });
   }
 
+  /** v1.95: Geräte, die noch aus einer Shared-Gruppe herausgelöst werden können.
+   *  Einzelspezialseiten zählen als vergeben. Letztes Gerät allein auf Shared
+   *  zählt nicht mehr als „unused“ (Chip erscheint schon einzeln; +Variante sinnlos). */
+  function unusedVariantsForSpecialize(page) {
+    const variants = variantsList();
+    if (!page || isFixedPage(page) || !variants.length) return [];
+    const group = pageGroupIdOf(page);
+    const siblings = pagesSharingGroup(group);
+    const singleOwned = new Set();
+    for (const pg of siblings) {
+      const ids = pageVariantScopeIds(pg);
+      if (ids && ids.length === 1) singleOwned.add(ids[0]);
+    }
+    const hasShared = siblings.some((pg) => !pageVariantScopeIds(pg));
+    const remaining = variants.filter((v) => !singleOwned.has(v.id));
+    if (!hasShared || remaining.length < 2) return [];
+    return remaining;
+  }
+
   function updateVariantBar() {
     const bar = document.getElementById('variantBar');
     if (!bar) return;
@@ -1069,20 +1088,17 @@
       return;
     }
 
-    /* + Variante aus, wenn jede Seite-1-Variante schon eine eigene Spezialseite hat
-       (Einzel-Scope; Multi-„Nur für“ zählt nicht als +Variante-Spezial). */
-    const allVariantsHavePage =
-      variants.length >= 2 &&
-      variants.every((v) =>
-        siblings.some((pg) => {
-          const ids = pageVariantScopeIds(pg);
-          return ids && ids.length === 1 && ids[0] === v.id;
-        })
-      );
+    /* v1.95: + Variante aus, wenn
+       – keine unused Geräte mehr für „Neue Variante anlegen für“, oder
+       – Chip-Anzahl == Anzahl Seite-1-Geräte (jedes Gerät hat eigenen Chip, kein Shared-Rest ≥2). */
+    const availableForAdd = unusedVariantsForSpecialize(page);
+    const chipsMatchDevices =
+      variants.length >= 2 && switchOpts.length >= variants.length;
+    const hideAdd = availableForAdd.length === 0 || chipsMatchDevices;
     const pageAlreadyMulti =
       siblings.length >= 2 || specialized.length >= 1 || !!pageVariantScopeIds(page);
 
-    if (addBtn) addBtn.hidden = !!allVariantsHavePage;
+    if (addBtn) addBtn.hidden = !!hideAdd;
     if (onlyBtn) onlyBtn.hidden = !!pageAlreadyMulti;
   }
 
@@ -1091,14 +1107,7 @@
     if (variants.length < 2) return;
     const page = currentPage();
     if (!page || isFixedPage(page)) return;
-    const group = pageGroupIdOf(page);
-    const siblings = pagesSharingGroup(group);
-    const used = new Set();
-    for (const pg of siblings) {
-      const ids = pageVariantScopeIds(pg);
-      if (ids && ids.length === 1) used.add(ids[0]);
-    }
-    const available = variants.filter((v) => !used.has(v.id));
+    const available = unusedVariantsForSpecialize(page);
     if (!available.length) {
       flash('Alle Varianten haben bereits eine Spezialseite');
       updateVariantBar();
@@ -1861,7 +1870,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.94';
+  const APP_VERSION = '1.95';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
