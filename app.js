@@ -738,7 +738,9 @@
     return clone;
   }
 
-  /** v1.88/v1.94: Aktuelle Seite auf bestimmte Variante(n) umstellen (keine neue Seite). */
+  /** v1.88/v1.94/v1.98: Aktuelle Seite auf bestimmte Variante(n).
+   *  War die Seite noch „all“ und die Auswahl eine echte Teilmenge → wie +Variante:
+   *  Klon für die Teilmenge, Original bleibt Shared für Restgeräte (Chip + Inhalt). */
   function convertCurrentPageToVariantSubset(variantIds) {
     const ids = (variantIds || []).filter((id) => !!variantById(id));
     if (!ids.length) {
@@ -751,21 +753,56 @@
       return null;
     }
     stopLiveCamera();
-    if (!page.pageGroupId) page.pageGroupId = page.id;
-    page.variantScope = ids.length === 1 ? ids[0] : ids.slice();
+    const group = page.pageGroupId || page.id;
+    if (!page.pageGroupId) page.pageGroupId = group;
+    const allVariantIds = variantsList().map((v) => v.id);
+    const wasShared = !pageVariantScopeIds(page);
+    const properSubset = wasShared && ids.length < allVariantIds.length &&
+      ids.every((id) => allVariantIds.indexOf(id) >= 0);
+
+    let target = page;
+    if (properSubset) {
+      const scopeVal = ids.length === 1 ? ids[0] : ids.slice();
+      const clone = {
+        id: uid('p'),
+        kind: 'layout',
+        root: cloneCellFreshIds(page.root),
+        annotations: (page.annotations || []).map((a) => {
+          const na = { ...a, id: uid('a') };
+          if (a && a.photo) na.photo = clonePhoto(a.photo);
+          return na;
+        }),
+        highlight: !!page.highlight,
+        highlightLeafIds: [],
+        pageGroupId: group,
+        variantScope: scopeVal,
+      };
+      if (page.fehlerEmbed) {
+        const emb = normalizeFehlerEmbed(page.fehlerEmbed);
+        if (emb) clone.fehlerEmbed = { rowIds: emb.rowIds.slice() };
+      }
+      page.variantScope = 'all';
+      const at = state.doc.pages.indexOf(page);
+      state.doc.pages.splice(at + 1, 0, clone);
+      target = clone;
+    } else {
+      page.variantScope = ids.length === 1 ? ids[0] : ids.slice();
+      target = page;
+    }
+
     const activate = (state.activeVariantId && ids.indexOf(state.activeVariantId) >= 0)
       ? state.activeVariantId
       : ids[0];
     setActiveVariant(activate, { rerender: false });
     renderAll();
-    snapToIndex(state.doc.pages.indexOf(page), true);
+    snapToIndex(state.doc.pages.indexOf(target), true);
     if (typeof historyCommit === 'function') historyCommit();
     const labels = ids.map((id) => {
       const v = variantById(id);
       return v ? (variantShortLabel(v) || v.label) : id;
     });
     flash('Seite gilt nur für „' + labels.join(', ') + '“');
-    return page;
+    return target;
   }
 
   /** v1.88: Aktuelle Seite auf nur eine Variante umstellen (keine neue Seite). */
@@ -1104,19 +1141,36 @@
   }
 
   function unusedVariantsForSpecialize(page) {
+    /* v1.98: + Variante for devices that still need a specialization path.
+       Prefer uncovered devices (not on any scoped page) — e.g. leftover C
+       after „Nur für A, B“. Multi-subset must NOT hide + Variante.
+       Sole shared remnant after all others have exclusive singles → hide. */
     const variants = variantsList();
     if (!page || isFixedPage(page) || !variants.length) return [];
     const group = pageGroupIdOf(page);
     const siblings = pagesSharingGroup(group);
     const singleOwned = new Set();
+    const scoped = new Set();
     for (const pg of siblings) {
       const ids = pageVariantScopeIds(pg);
-      if (ids && ids.length === 1) singleOwned.add(ids[0]);
+      if (!ids) continue;
+      ids.forEach((id) => scoped.add(id));
+      if (ids.length === 1) singleOwned.add(ids[0]);
     }
-    const hasShared = siblings.some((pg) => !pageVariantScopeIds(pg));
+    const uncovered = variants.filter((v) => !scoped.has(v.id));
+    if (uncovered.length) {
+      if (uncovered.length === 1 && singleOwned.size === variants.length - 1) return [];
+      return uncovered;
+    }
+    /* Everyone is on some scoped page: offer those without exclusive single
+       (can still split further), except sole remnant after full single-split. */
     const remaining = variants.filter((v) => !singleOwned.has(v.id));
-    if (!hasShared || remaining.length < 2) return [];
-    return remaining;
+    if (!remaining.length) return [];
+    if (remaining.length === 1 && singleOwned.size === variants.length - 1) return [];
+    /* Classic shared split: need ≥2 still without singles and a shared page */
+    const hasShared = siblings.some((pg) => !pageVariantScopeIds(pg));
+    if (hasShared && remaining.length >= 2) return remaining;
+    return remaining.length ? remaining : [];
   }
 
   function updateVariantBar() {
@@ -1155,13 +1209,15 @@
       return;
     }
 
-    /* v1.95: + Variante aus, wenn
-       – keine unused Geräte mehr für „Neue Variante anlegen für“, oder
-       – Chip-Anzahl == Anzahl Seite-1-Geräte (jedes Gerät hat eigenen Chip, kein Shared-Rest ≥2). */
+    /* v1.98: + Variante aus nur wenn unusedVariantsForSpecialize leer
+       (jedes Gerät hat Exclusive-Single bzw. alleiniger Shared-Rest nach Singles).
+       Chip-Anzahl == Geräte allein reicht nicht: A,B-Multi + C-Chip darf +Variante behalten. */
     const availableForAdd = unusedVariantsForSpecialize(page);
-    const chipsMatchDevices =
-      variants.length >= 2 && switchOpts.length >= variants.length;
-    const hideAdd = availableForAdd.length === 0 || chipsMatchDevices;
+    const allChipsAreSingles =
+      variants.length >= 2 &&
+      switchOpts.length >= variants.length &&
+      switchOpts.every((o) => Array.isArray(o.groupIds) && o.groupIds.length === 1);
+    const hideAdd = availableForAdd.length === 0 || allChipsAreSingles;
     const pageAlreadyMulti =
       siblings.length >= 2 || specialized.length >= 1 || !!pageVariantScopeIds(page);
 
@@ -1683,6 +1739,12 @@
     displayModeWindowCheck: document.getElementById('displayModeWindowCheck'),
     stuecklisteFile: document.getElementById('stuecklisteFile'),
     beakPdfLightbox: document.getElementById('beakPdfLightbox'),
+    laufzettelLightbox: document.getElementById('laufzettelLightbox'),
+    laufzettelIframe: document.getElementById('laufzettelIframe'),
+    laufzettelCloseBtn: document.getElementById('laufzettelCloseBtn'),
+    laufzettelHomeBtn: document.getElementById('laufzettelHomeBtn'),
+    laufzettelTitle: document.getElementById('laufzettelTitle'),
+    laufzettelInfo: document.getElementById('laufzettelInfo'),
     beakPdfFrame: document.getElementById('beakPdfFrame'),
     beakPdfFrameInner: document.getElementById('beakPdfFrameInner'),
     beakCheckHeader: document.getElementById('beakCheckHeader'),
@@ -1937,7 +1999,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.96';
+  const APP_VERSION = '1.98';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -2661,6 +2723,141 @@
   function setBeakPdfInfo(text) {
     const info = document.getElementById('beakPdfInfo');
     if (info) info.textContent = text || '';
+  }
+
+
+  /* ---- v1.98: Geräte Laufzettel Overlay ------------------------------------ */
+  const GERAEETE_LAUFZETTEL_URL = 'https://beak-electronic.github.io/geraete-laufzettel/';
+  const GERAEETE_LAUFZETTEL_MSG_SOURCE = 'geraete-laufzettel';
+  let laufzettelAtSelection = true;
+
+  function isGeraeteLaufzettelButton(a) {
+    return !!(a && a.type === 'button' && a.buttonAction === 'geraeteLaufzettel');
+  }
+
+  function openGeraeteLaufzettelOverlay(opts) {
+    const o = opts || {};
+    const box = el.laufzettelLightbox || document.getElementById('laufzettelLightbox');
+    const frame = el.laufzettelIframe || document.getElementById('laufzettelIframe');
+    if (!box || !frame) {
+      flash('Geräte Laufzettel-Overlay nicht verfügbar', 4000, 'error');
+      return;
+    }
+    const url = o.url || GERAEETE_LAUFZETTEL_URL;
+    try {
+      frame.src = url;
+    } catch (_) {
+      frame.setAttribute('src', url);
+    }
+    laufzettelAtSelection = true;
+    if (el.laufzettelInfo) el.laufzettelInfo.textContent = '';
+    if (el.laufzettelTitle) el.laufzettelTitle.textContent = 'Geräte Laufzettel';
+    box.hidden = false;
+  }
+
+  function reloadGeraeteLaufzettelSelection() {
+    const frame = el.laufzettelIframe || document.getElementById('laufzettelIframe');
+    if (!frame) return;
+    try {
+      frame.src = 'about:blank';
+    } catch (_) {}
+    requestAnimationFrame(() => {
+      try { frame.src = GERAEETE_LAUFZETTEL_URL; } catch (_) { frame.setAttribute('src', GERAEETE_LAUFZETTEL_URL); }
+      laufzettelAtSelection = true;
+      if (el.laufzettelInfo) el.laufzettelInfo.textContent = 'Auswahl';
+    });
+  }
+
+  function closeGeraeteLaufzettelOverlay() {
+    const box = el.laufzettelLightbox || document.getElementById('laufzettelLightbox');
+    const frame = el.laufzettelIframe || document.getElementById('laufzettelIframe');
+    if (box) box.hidden = true;
+    if (frame) {
+      try { frame.src = 'about:blank'; } catch (_) { frame.setAttribute('src', 'about:blank'); }
+    }
+    laufzettelAtSelection = true;
+    if (el.laufzettelInfo) el.laufzettelInfo.textContent = '';
+  }
+
+  function onLaufzettelChromeHome() {
+    reloadGeraeteLaufzettelSelection();
+  }
+
+  function onLaufzettelChromeClose() {
+    /* Overlay-✕: zurück zu Anweisungen (voll schließen) */
+    closeGeraeteLaufzettelOverlay();
+  }
+
+  function handleGeraeteLaufzettelMessage(ev) {
+    try {
+      if (!ev) return;
+      const originOk = !ev.origin || /beak-electronic\.github\.io$/i.test(String(ev.origin).replace(/^https?:\/\//, '').split('/')[0]) || ev.origin === 'null';
+      /* accept github pages origin */
+      const okOrigin = typeof ev.origin === 'string' && (
+        ev.origin.indexOf('beak-electronic.github.io') >= 0 || ev.origin === window.location.origin
+      );
+      if (ev.origin && ev.origin !== 'null' && !okOrigin) return;
+      let data = ev.data;
+      if (typeof data === 'string') {
+        try { data = JSON.parse(data); } catch (_) { return; }
+      }
+      if (!data || typeof data !== 'object') return;
+      const src = data.source || data.src || data.from;
+      if (src && src !== GERAEETE_LAUFZETTEL_MSG_SOURCE && src !== 'beak-geraete-laufzettel') return;
+      const type = data.type || data.event || data.action;
+      if (!type) return;
+      const t = String(type).toLowerCase();
+      if (t === 'saved' || t === 'save' || t === 'gesichert' || t === 'save-success') {
+        closeGeraeteLaufzettelOverlay();
+        flash('Geräte Laufzettel gespeichert');
+        return;
+      }
+      if (t === 'closed' || t === 'close' || t === 'home' || t === 'selection' || t === 'cancel') {
+        /* Ohne Speichern → Auswahl-UI im Overlay */
+        reloadGeraeteLaufzettelSelection();
+        laufzettelAtSelection = true;
+        return;
+      }
+    } catch (err) {
+      console.warn('Geräte Laufzettel message', err);
+    }
+  }
+
+  async function pickButtonAction() {
+    return new Promise((resolve) => {
+      const backdrop = document.createElement('div');
+      backdrop.className = 'variant-pick-backdrop';
+      backdrop.setAttribute('role', 'dialog');
+      backdrop.setAttribute('aria-modal', 'true');
+      const panel = document.createElement('div');
+      panel.className = 'variant-pick-panel';
+      const h = document.createElement('h2');
+      h.className = 'variant-pick-title';
+      h.textContent = 'Button-Ziel';
+      panel.appendChild(h);
+      const mk = (label, val) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn touch block variant-pick-item';
+        b.textContent = label;
+        b.addEventListener('click', () => { cleanup(); resolve(val); });
+        panel.appendChild(b);
+      };
+      mk('Seitennummer', 'page');
+      mk('Geräte Laufzettel', 'geraeteLaufzettel');
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.className = 'btn touch block';
+      cancel.textContent = 'Abbrechen';
+      cancel.addEventListener('click', () => { cleanup(); resolve(null); });
+      panel.appendChild(cancel);
+      backdrop.appendChild(panel);
+      backdrop.addEventListener('click', (e) => {
+        if (e.target === backdrop) { cleanup(); resolve(null); }
+      });
+      document.body.appendChild(backdrop);
+      function cleanup() { try { backdrop.remove(); } catch (_) {} }
+    });
   }
 
   function closeBeakPdfViewer() {
@@ -5368,6 +5565,23 @@
         node.appendChild(box);
 
         if (a.type === 'button' && state.editMode) {
+          if (!a.buttonAction) a.buttonAction = 'page';
+          const actionSel = document.createElement('select');
+          actionSel.className = 'ann-button-action';
+          actionSel.title = 'Button-Ziel';
+          const optPage = document.createElement('option');
+          optPage.value = 'page';
+          optPage.textContent = 'Seitennummer';
+          const optGz = document.createElement('option');
+          optGz.value = 'geraeteLaufzettel';
+          optGz.textContent = 'Geräte Laufzettel';
+          actionSel.appendChild(optPage);
+          actionSel.appendChild(optGz);
+          actionSel.value = a.buttonAction === 'geraeteLaufzettel' ? 'geraeteLaufzettel' : 'page';
+          actionSel.addEventListener('pointerdown', (e) => e.stopPropagation());
+          actionSel.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+          actionSel.addEventListener('click', (e) => e.stopPropagation());
+
           const targetInput = document.createElement('input');
           targetInput.type = 'number';
           targetInput.className = 'ann-button-target';
@@ -5401,7 +5615,29 @@
           targetInput.addEventListener('blur', () => {
             scheduleViewportRecover();
           });
-          /* Target page field sits outside/below the blue button box */
+
+          function syncButtonActionUi() {
+            const isGz = actionSel.value === 'geraeteLaufzettel';
+            a.buttonAction = isGz ? 'geraeteLaufzettel' : 'page';
+            targetInput.classList.toggle('is-hidden', isGz);
+            if (isGz) {
+              a.targetPage = 0;
+              targetInput.value = '';
+              if (!a.text || a.text === 'Button') {
+                a.text = 'Geräte Laufzettel';
+                label.textContent = a.text;
+              } else if (a.text !== 'Geräte Laufzettel') {
+                a.text = 'Geräte Laufzettel';
+                label.textContent = a.text;
+              }
+            }
+          }
+          actionSel.addEventListener('change', () => {
+            syncButtonActionUi();
+            if (typeof historyCommit === 'function') historyCommit();
+          });
+          syncButtonActionUi();
+          node.appendChild(actionSel);
           node.appendChild(targetInput);
         } else if (a.type === 'info' && state.editMode) {
           /* v1.38: Kompaktes „Öffnen“ unter dem Info-Button → Popup (editierbar) */
@@ -5435,6 +5671,10 @@
           box.addEventListener('click', (e) => {
             if (trackDragDidPageSwipe) return;
             e.stopPropagation();
+            if (isGeraeteLaufzettelButton(a)) {
+              openGeraeteLaufzettelOverlay();
+              return;
+            }
             const tp = a.targetPage;
             if (typeof tp === 'number' && tp >= 1 && tp <= state.doc.pages.length) {
               goToPage(tp - 1);
@@ -6913,13 +7153,22 @@
     }
   }
 
-  function placeAnnotationAt(clientX, clientY) {
+  async function placeAnnotationAt(clientX, clientY) {
     if (!state.editMode || !state.annTool) return;
     /* v1.15: ausstehende Änderung (z. B. gerade bestätigte BEAK-Nr.) vorher als eigenen Schritt sichern */
     if (hist && hist.timer) historyCommit();
     const page = currentPage();
     if (isFixedPage(page)) return;
     const type = state.annTool;
+    let buttonAction = 'page';
+    if (type === 'button') {
+      const chosen = await pickButtonAction();
+      if (!chosen) {
+        setAnnTool(null);
+        return;
+      }
+      buttonAction = chosen;
+    }
     stopLiveCamera();
     const id = uid('a');
     const sr = stageRect();
@@ -6947,7 +7196,11 @@
       a = { id, type: 'text', textSize, x, y, w, h, text: 'Text' }; /* placeholder until first input */
       a.color = state.annColor || annDefaultColor(type);
     } else if (type === 'button') {
-      a = { id, type: 'button', x, y, w, h, text: 'Button', targetPage: 0 };
+      if (buttonAction === 'geraeteLaufzettel') {
+        a = { id, type: 'button', x, y, w, h, text: 'Geräte Laufzettel', targetPage: 0, buttonAction: 'geraeteLaufzettel' };
+      } else {
+        a = { id, type: 'button', x, y, w, h, text: 'Button', targetPage: 0, buttonAction: 'page' };
+      }
     } else if (type === 'info') {
       a = { id, type: 'info', x, y, w, h, text: 'Info', infoText: '' };
     } else if (type === 'beakNr') {
@@ -10788,7 +11041,7 @@
         const ph = leaf.photo;
         leaves.push(leaf.id + ':' + (ph ? ((ph.src || ph.file || '').length + ':' + (ph.rot || 0) + ':' + (ph.scale || 1) + ':' + (ph.x != null ? ph.x : 0.5) + ':' + (ph.y != null ? ph.y : 0.5) + ':' + (ph.tx || 0) + ':' + (ph.ty || 0)) : '0'));
       });
-      const anns = (page.annotations || []).map((a) => (a.type || '') + ':' + (a.text || '') + ':' + (a.beakDigits || '') + ':' + (a.qty || '') + ':' + (a.infoText || '') + ':' + (a.targetPage || '')).join(';');
+      const anns = (page.annotations || []).map((a) => (a.type || '') + ':' + (a.text || '') + ':' + (a.beakDigits || '') + ':' + (a.qty || '') + ':' + (a.infoText || '') + ':' + (a.targetPage || '') + ':' + (a.buttonAction || '')).join(';');
       const emb = page.fehlerEmbed ? String((page.fehlerEmbed.rowIds || []).length) : '0';
       return 'l:' + leaves.join(',') + '#' + anns + '#' + emb;
     } catch (_) {
@@ -12083,6 +12336,15 @@
       if (b) b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
     };
     bindBtn('beakPdfCloseBtn', closeBeakPdfViewer);
+    bindBtn('laufzettelCloseBtn', onLaufzettelChromeClose);
+    bindBtn('laufzettelHomeBtn', onLaufzettelChromeHome);
+    window.addEventListener('message', handleGeraeteLaufzettelMessage);
+    if (el.laufzettelLightbox) {
+      el.laufzettelLightbox.addEventListener('click', (e) => {
+        if (e.target === el.laufzettelLightbox) onLaufzettelChromeClose();
+      });
+    }
+
     bindBtn('beakPdfZoomIn', () => changeBeakPdfZoom(1));
     bindBtn('beakPdfZoomOut', () => changeBeakPdfZoom(-1));
   }

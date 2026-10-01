@@ -4141,7 +4141,10 @@ html.orient-portrait.app-h-fixed .page-viewport {
 }
 /* Toggle bleibt absolute (nicht durch > * auf relative setzen) */
 .variant-bar > .variant-bar-toggle {
-  position: absolute;
+  position: absolute !important;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   z-index: 3;
 }
 .variant-bar[hidden] { display: none !important; }
@@ -4395,15 +4398,21 @@ html.orient-portrait.app-h-fixed .page-viewport {
 .variant-bar.is-collapsed {
   justify-content: center;
   align-items: center;
-  min-height: 50px; /* gleiche Dicke auch eingeklappt */
+  min-height: 50px; /* Platz für zentrierten Toggle; Hintergrund unsichtbar */
   padding-top: 8px;
   padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  background: transparent !important;
 }
 .variant-bar.is-collapsed .variant-bar-body {
   display: none !important;
 }
 .variant-bar.is-collapsed::before {
-  opacity: 0.55;
+  /* v1.97: keine Milchglas-Leiste — nur der Kreis-Toggle sichtbar */
+  opacity: 0 !important;
+  background: transparent !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  visibility: hidden;
 }
 /* Design D: runder Icon-Button, gleiche Höhe wie .variant-chip (34px) */
 .variant-bar-toggle {
@@ -4432,10 +4441,11 @@ html.orient-portrait.app-h-fixed .page-viewport {
   box-shadow: none;
 }
 .variant-bar.is-collapsed .variant-bar-toggle {
-  position: relative;
-  left: auto;
-  top: auto;
-  transform: none;
+  /* v1.97: gleiche absolute Mitte wie expanded — kein Positionswechsel */
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%) !important;
 }
 .variant-bar-toggle:hover,
 .variant-bar-toggle:focus-visible {
@@ -4482,4 +4492,49 @@ html.orient-portrait.app-h-fixed .page-viewport {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+
+/* ==== v1.98: Geräte Laufzettel Overlay ===================================== */
+.laufzettel-lightbox {
+  cursor: default;
+  z-index: 210;
+}
+.laufzettel-frame {
+  /* ~iPad portrait short side / ~60% landscape — not full width */
+  width: min(768px, 60vw, calc(100vw - 48px));
+  max-width: 768px;
+  height: min(92vh, calc(100dvh - 28px));
+  margin: 0 auto;
+}
+.laufzettel-iframe-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  background: #fff;
+}
+.laufzettel-iframe-wrap iframe {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+.laufzettel-topbar #laufzettelHomeBtn {
+  margin-left: auto;
+}
+.ann-button-action {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  min-height: 28px;
+  font: 600 0.75rem/1.2 system-ui, sans-serif;
+  border-radius: 6px;
+  border: 1px solid #2e3644;
+  background: #1a1f27;
+  color: #e8ecf1;
+  padding: 4px 6px;
+}
+.ann-button-target.is-hidden {
+  display: none !important;
 }
