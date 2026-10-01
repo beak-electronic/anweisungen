@@ -2,7 +2,12 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.05
+**Version:** 2.06
+
+## Neu in 2.06
+
+- **Geräte-Laufzettel-Button:** gleiche Farbe wie „Sichern“ (Magenta `--accent` / `#dd007a`); normale Seiten-Buttons bleiben blau.
+- **Service Worker:** Cache `anweisungen-shell-v2.06` und `?v=2.06`.
 
 ## Neu in 2.05
 

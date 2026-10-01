@@ -1026,6 +1026,13 @@ html.stage-ipad-window .stage-inner {
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid #2f7fd4;
 }
+/* v2.06: Geräte-Laufzettel-Button = Sichern (.btn.primary / --accent) */
+.ann-button.ann-button-geraete {
+  background: var(--accent);
+  border-color: #a8005c;
+  color: #ffffff;
+}
+
 .ann.flash-invalid .ann-button {
   animation: ann-btn-flash 0.4s ease;
 }

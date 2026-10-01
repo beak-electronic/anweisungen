@@ -2057,7 +2057,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.05';
+  const APP_VERSION = '2.06';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -5599,6 +5599,10 @@
       } else if (a.type === 'button' || a.type === 'info') {
         const box = document.createElement('div');
         box.className = 'ann-button';
+        /* v2.06: Geräte Laufzettel = Sichern-Farbe (var(--accent)) */
+        if (a.type === 'button' && a.buttonAction === 'geraeteLaufzettel') {
+          box.classList.add('ann-button-geraete');
+        }
 
         const label = document.createElement('div');
         label.className = 'ann-button-label';
@@ -5687,6 +5691,7 @@
           function syncButtonActionUi() {
             const isGz = actionSel.value === 'geraeteLaufzettel';
             a.buttonAction = isGz ? 'geraeteLaufzettel' : 'page';
+            box.classList.toggle('ann-button-geraete', isGz);
             targetInput.classList.toggle('is-hidden', isGz);
             if (isGz) {
               a.targetPage = 0;
