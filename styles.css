@@ -4100,14 +4100,18 @@ html.orient-portrait.app-h-fixed .page-viewport {
   bottom: 0;
   z-index: 48;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
   gap: 8px;
+  /* v1.96: gleiche Dicke wie .topbar (8 + ~34 Chip + 8 ≈ 50px) */
   padding: 8px 12px;
   padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  padding-top: 8px;
   padding-left: max(12px, env(safe-area-inset-left, 0px));
   padding-right: max(12px, env(safe-area-inset-right, 0px));
+  min-height: 50px;
+  box-sizing: border-box;
   background: transparent;
   border: none;
   border-top: none;
@@ -4134,6 +4138,11 @@ html.orient-portrait.app-h-fixed .page-viewport {
   position: relative;
   z-index: 1;
   pointer-events: auto;
+}
+/* Toggle bleibt absolute (nicht durch > * auf relative setzen) */
+.variant-bar > .variant-bar-toggle {
+  position: absolute;
+  z-index: 3;
 }
 .variant-bar[hidden] { display: none !important; }
 .variant-bar-status {
@@ -4274,7 +4283,7 @@ html.orient-portrait.app-h-fixed .page-viewport {
 }
 .variant-bar-chips {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
   flex: 1 1 auto;
@@ -4285,11 +4294,15 @@ html.orient-portrait.app-h-fixed .page-viewport {
   border: 2px solid rgba(232, 236, 241, 0.35);
   background: rgba(26, 31, 39, 0.72);
   color: var(--text, #e8ecf1);
-  font: 700 0.85rem/1.1 system-ui, sans-serif;
-  padding: 8px 12px;
+  font: 700 0.85rem/1 system-ui, sans-serif;
+  padding: 0 12px;
   border-radius: 999px;
   cursor: pointer;
   min-height: 34px;
+  height: 34px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
   letter-spacing: 0.01em;
 }
 .variant-chip:hover,
@@ -4306,10 +4319,17 @@ html.orient-portrait.app-h-fixed .page-viewport {
 }
 .variant-bar-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
+}
+.variant-bar-actions .btn.sm {
+  min-height: 34px;
+  height: 34px;
+  box-sizing: border-box;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 .variant-pick-multi .variant-pick-checks {
   display: flex;
@@ -4352,4 +4372,114 @@ html.orient-portrait.app-h-fixed .page-viewport {
 }
 .variant-pick-actions .btn {
   flex: 1 1 0;
+}
+
+
+/* ==== v1.96: Einklappbare Varianten-Leiste (Design D: Kreis = Chip-Höhe) === */
+.variant-bar-body {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  box-sizing: border-box;
+}
+.variant-bar:not(.is-collapsed) {
+  padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  min-height: 50px; /* = Topbar */
+}
+.variant-bar.is-collapsed {
+  justify-content: center;
+  align-items: center;
+  min-height: 50px; /* gleiche Dicke auch eingeklappt */
+  padding-top: 8px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+}
+.variant-bar.is-collapsed .variant-bar-body {
+  display: none !important;
+}
+.variant-bar.is-collapsed::before {
+  opacity: 0.55;
+}
+/* Design D: runder Icon-Button, gleiche Höhe wie .variant-chip (34px) */
+.variant-bar-toggle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  box-sizing: border-box;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  margin: 0;
+  border: 2px solid rgba(232, 236, 241, 0.35);
+  border-radius: 50%;
+  background: rgba(26, 31, 39, 0.72);
+  color: var(--text, #e8ecf1);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  flex: 0 0 34px;
+  box-shadow: none;
+}
+.variant-bar.is-collapsed .variant-bar-toggle {
+  position: relative;
+  left: auto;
+  top: auto;
+  transform: none;
+}
+.variant-bar-toggle:hover,
+.variant-bar-toggle:focus-visible {
+  border-color: rgba(125, 211, 252, 0.75);
+  outline: none;
+}
+.variant-bar-toggle-glyph {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 16px;
+  height: 18px;
+  position: relative;
+  line-height: 0;
+}
+.variant-bar-toggle-arrow {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: inherit;
+}
+/* Expanded = ↓ with shaft; collapsed = ↑ with shaft (flip arrow only) */
+.variant-bar.is-collapsed .variant-bar-toggle-arrow {
+  transform: scaleY(-1);
+}
+.variant-bar-toggle-line {
+  display: block;
+  width: 12px;
+  height: 0;
+  border-bottom: 2px solid currentColor;
+  border-radius: 1px;
+  flex: 0 0 auto;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

@@ -549,11 +549,54 @@
     return state.stueckliste;
   }
 
+  /** v1.96: Original-PDF-Name → Zip-Pfad unter source/ (kein generisches Stueckliste.pdf). */
+  function sanitizeStuecklisteBaseName(name) {
+    let base = String(name == null ? '' : name).trim().split(/[/\\]/).pop() || '';
+    base = base.replace(/[\x00-\x1f<>:"|?*]/g, '_').replace(/^\.+/g, '').trim();
+    if (!base) base = 'Stueckliste.pdf';
+    if (!/\.pdf$/i.test(base)) base += '.pdf';
+    return base;
+  }
+
+  function stuecklisteZipPathFromName(name) {
+    return 'source/' + sanitizeStuecklisteBaseName(name);
+  }
+
+  /** Eindeutigen source/-Pfad wählen; Kollisionen → stem__<tag>.pdf */
+  function allocateStuecklisteZipPath(name, usedPaths, disambiguator) {
+    const used = usedPaths || new Set();
+    let path = stuecklisteZipPathFromName(name);
+    if (!used.has(path)) {
+      used.add(path);
+      return path;
+    }
+    const base = sanitizeStuecklisteBaseName(name);
+    const stem = base.replace(/\.pdf$/i, '');
+    const tag = String(disambiguator || 'x').replace(/[^a-zA-Z0-9]/g, '').slice(-10) || 'x';
+    path = 'source/' + stem + '__' + tag + '.pdf';
+    let n = 2;
+    while (used.has(path)) {
+      path = 'source/' + stem + '__' + tag + '_' + n + '.pdf';
+      n += 1;
+    }
+    used.add(path);
+    return path;
+  }
+
+  function bindStuecklistePathToVariant(variantId, rec) {
+    if (!variantId || !rec || !rec.name) return;
+    try { syncVariantsFromPage(); } catch (_) {}
+    const list = (state.doc && state.doc.variants) || [];
+    const v = list.find((x) => x && x.id === variantId);
+    if (v) v.stuecklisteFile = stuecklisteZipPathFromName(rec.name);
+  }
+
   function setActiveVariantStueckliste(rec) {
     if (hasMultipleVariants() && state.activeVariantId) {
       if (!state.variantStuecklisten) state.variantStuecklisten = {};
       state.variantStuecklisten[state.activeVariantId] = rec;
       state.stueckliste = rec; // Abgleich/UI lesen state.stueckliste
+      bindStuecklistePathToVariant(state.activeVariantId, rec);
       return;
     }
     state.stueckliste = rec;
@@ -1038,6 +1081,28 @@
   /** v1.95: Geräte, die noch aus einer Shared-Gruppe herausgelöst werden können.
    *  Einzelspezialseiten zählen als vergeben. Letztes Gerät allein auf Shared
    *  zählt nicht mehr als „unused“ (Chip erscheint schon einzeln; +Variante sinnlos). */
+  let variantBarCollapsed = false; /* v1.96: Leiste eingeklappt */
+
+  function syncVariantBarCollapsedUi() {
+    const bar = document.getElementById('variantBar');
+    const btn = document.getElementById('variantBarToggle');
+    const label = document.getElementById('variantBarToggleLabel');
+    if (!bar) return;
+    bar.classList.toggle('is-collapsed', !!variantBarCollapsed);
+    if (btn) {
+      btn.setAttribute('aria-expanded', variantBarCollapsed ? 'false' : 'true');
+      btn.title = variantBarCollapsed ? 'Varianten-Leiste ausklappen' : 'Varianten-Leiste einklappen';
+    }
+    if (label) {
+      label.textContent = variantBarCollapsed ? 'Varianten-Leiste ausklappen' : 'Varianten-Leiste einklappen';
+    }
+  }
+
+  function toggleVariantBarCollapsed() {
+    variantBarCollapsed = !variantBarCollapsed;
+    syncVariantBarCollapsedUi();
+  }
+
   function unusedVariantsForSpecialize(page) {
     const variants = variantsList();
     if (!page || isFixedPage(page) || !variants.length) return [];
@@ -1072,8 +1137,10 @@
     if (!show) {
       const host = document.getElementById('variantBarChips');
       if (host) host.innerHTML = '';
+      bar.classList.remove('is-collapsed');
       return;
     }
+    syncVariantBarCollapsedUi();
 
     const onLayout = page && !isFixedPage(page) && !isVariantenPage(page);
     const group = onLayout ? pageGroupIdOf(page) : null;
@@ -1870,7 +1937,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.95';
+  const APP_VERSION = '1.96';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -8721,24 +8788,29 @@
       })),
       activeVariantId: state.activeVariantId || null,
     };
-    /* Legacy-Einzelstückliste (erste Variante bzw. Projekt ohne Mehrfachvarianten) */
+    /* Legacy-Einzelstückliste + Varianten: Zip-Pfad = Originalname unter source/ (v1.96) */
+    const usedPdfPaths = new Set();
     const primary = getActiveVariantStueckliste() || state.stueckliste;
     if (primary && primary.name) {
-      out.stueckliste = {
-        name: primary.name,
-        file: 'source/Stueckliste.pdf',
-      };
+      const file = allocateStuecklisteZipPath(primary.name, usedPdfPaths, 'primary');
+      out.stueckliste = { name: primary.name, file: file };
     }
     if (hasMultipleVariants() && state.variantStuecklisten) {
       out.variantStuecklisten = {};
       for (const v of variantsList()) {
         const rec = state.variantStuecklisten[v.id];
         if (rec && rec.name) {
-          out.variantStuecklisten[v.id] = {
-            name: rec.name,
-            file: v.stuecklisteFile || ('source/Stueckliste-' + v.id + '.pdf'),
-          };
+          const file = allocateStuecklisteZipPath(rec.name, usedPdfPaths, v.id);
+          v.stuecklisteFile = file;
+          out.variantStuecklisten[v.id] = { name: rec.name, file: file };
         }
+      }
+    }
+    /* variants[].stuecklisteFile an aktuelle Pfade anpassen */
+    if (Array.isArray(out.variants)) {
+      for (const v of out.variants) {
+        const live = variantsList().find((x) => x.id === v.id);
+        if (live && live.stuecklisteFile) v.stuecklisteFile = live.stuecklisteFile;
       }
     }
     return out;
@@ -9252,11 +9324,34 @@
       })),
       activeVariantId: state.activeVariantId || null,
     };
+    const usedZipPdfPaths = new Set();
     if (state.stueckliste && state.stueckliste.dataUrl) {
+      const file = allocateStuecklisteZipPath(
+        state.stueckliste.name || 'Stueckliste.pdf',
+        usedZipPdfPaths,
+        'primary'
+      );
       project.stueckliste = {
         name: state.stueckliste.name || 'Stueckliste.pdf',
-        file: 'source/Stueckliste.pdf',
+        file: file,
       };
+    }
+    if (hasMultipleVariants() && state.variantStuecklisten) {
+      project.variantStuecklisten = {};
+      for (const v of variantsList()) {
+        const rec = state.variantStuecklisten[v.id];
+        if (!rec || !rec.dataUrl) continue;
+        const file = allocateStuecklisteZipPath(rec.name || 'Stueckliste.pdf', usedZipPdfPaths, v.id);
+        v.stuecklisteFile = file;
+        project.variantStuecklisten[v.id] = { name: rec.name || 'Stueckliste.pdf', file: file };
+      }
+      /* sync into project.variants[].stuecklisteFile */
+      if (Array.isArray(project.variants)) {
+        for (const v of project.variants) {
+          const live = variantsList().find((x) => x.id === v.id);
+          if (live && live.stuecklisteFile) v.stuecklisteFile = live.stuecklisteFile;
+        }
+      }
     }
 
     /* v1.47: Übersicht-Thumbs (klein, JPEG) additiv in thumbs/<pageId>.jpg */
@@ -9299,17 +9394,22 @@
     if (state.stueckliste && state.stueckliste.dataUrl) {
       try {
         const pdfBytes = await dataUrlToUint8(state.stueckliste.dataUrl);
-        zip.file('source/Stueckliste.pdf', pdfBytes);
+        const file = (project.stueckliste && project.stueckliste.file)
+          || stuecklisteZipPathFromName(state.stueckliste.name || 'Stueckliste.pdf');
+        zip.file(file, pdfBytes);
       } catch (err) {
         console.warn('Stuckliste-PDF uebersprungen', err);
       }
     }
-    /* v1.85: Stuckliste je Variante */
+    /* v1.85/v1.96: Stuckliste je Variante unter Originalnamen */
     if (state.variantStuecklisten) {
       for (const v of variantsList()) {
         const rec = state.variantStuecklisten[v.id];
         if (!rec || !rec.dataUrl) continue;
-        const file = v.stuecklisteFile || ('source/Stueckliste-' + v.id + '.pdf');
+        const meta = project.variantStuecklisten && project.variantStuecklisten[v.id];
+        const file = (meta && meta.file)
+          || v.stuecklisteFile
+          || stuecklisteZipPathFromName(rec.name || 'Stueckliste.pdf');
         try {
           const pdfBytes = await dataUrlToUint8(rec.dataUrl);
           zip.file(file, pdfBytes);
@@ -9885,6 +9985,9 @@
     state.variantStuecklisten = {};
     const preferred =
       (data && data.stueckliste && data.stueckliste.file) ||
+      (data && data.stueckliste && data.stueckliste.name
+        ? stuecklisteZipPathFromName(data.stueckliste.name)
+        : null) ||
       'source/Stueckliste.pdf';
     let zf = zip.file(preferred);
     if (!zf) {
@@ -11469,9 +11572,15 @@
     const add = document.getElementById('variantAddBtn');
     const sw = document.getElementById('variantSwitchBtn');
     const only = document.getElementById('variantOnlyBtn');
+    const tog = document.getElementById('variantBarToggle');
     if (add) add.addEventListener('click', () => { void onVariantAddClick(); });
     if (sw) sw.addEventListener('click', () => { void onVariantSwitchClick(); });
     if (only) only.addEventListener('click', () => { void onVariantOnlyClick(); });
+    if (tog) tog.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleVariantBarCollapsed();
+    });
   })();
 
   el.ladenBtn.addEventListener('click', () => { void load(); });

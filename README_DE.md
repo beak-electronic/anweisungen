@@ -2,7 +2,13 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.95
+**Version:** 1.96
+
+## Neu in 1.96
+
+- **Stückliste-PDF im .beak:** Beim Speichern bleibt der **Original-Dateiname** unter `source/<Originalname>.pdf` (nicht mehr fest `source/Stueckliste.pdf` / `Stueckliste-<id>.pdf`). `project.json` speichert `stueckliste.file` / `variantStuecklisten.*.file` entsprechend; Laden nutzt diesen Pfad (Fallback auf alte generische Namen).
+- **Varianten-Leiste einklappbar (Design D):** Runder Icon-Button in Chip-Höhe (34px, ohne höhere Leiste). Expanded: Pfeil ↓ + Linie; collapsed: Pfeil ↑ + Linie.
+- **Service Worker:** Cache `anweisungen-shell-v1.96` und `?v=1.96`.
 
 ## Neu in 1.95
 
