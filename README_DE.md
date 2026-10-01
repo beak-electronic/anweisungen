@@ -2,7 +2,12 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.08
+**Version:** 2.09
+
+## Neu in 2.09
+
+- **Drehung Portrait→Landscape:** Die Seite in der **Display-Mitte** wird übernommen (nicht mehr die am oberen Rand).
+- **Service Worker:** Cache `anweisungen-shell-v2.09` und `?v=2.09`.
 
 ## Neu in 2.08
 

@@ -2057,7 +2057,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.08';
+  const APP_VERSION = '2.09';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -3961,7 +3961,7 @@
     animating = false;
   }
 
-  /* v2.08: Portrait↔Landscape – aktuelle Seite behalten (pageIndex ↔ scrollTop / translateX) */
+  /* v2.08/v2.09: Portrait↔Landscape – Seite behalten; Index aus Display-Mitte (Portrait) */
   let portraitScrollSyncLock = false;
   let portraitScrollSyncTimer = null;
   /** v2.08: nach Orientierungswechsel kurz Portrait-Scroll/Track erzwingen (Settle-Timer) */
@@ -3992,7 +3992,8 @@
     const slides = el.pageTrack.querySelectorAll(':scope > .page-slide');
     if (!slides.length) return state.doc.pageIndex;
     const vp = el.pageViewport;
-    const probe = vp.scrollTop + Math.min(Math.max(24, vp.clientHeight * 0.22), 120);
+    /* v2.09: Seite in der Display-Mitte (nicht oberer Rand) für Drehung Portrait→Landscape */
+    const probe = vp.scrollTop + (vp.clientHeight * 0.5);
     let chosen = slides[0];
     for (let i = 0; i < slides.length; i++) {
       const sl = slides[i];
