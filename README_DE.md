@@ -2,7 +2,15 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.00
+**Version:** 2.01
+
+## Neu in 2.01
+
+- **Varianten-Texte (Seite 1):** Editor und Viewer gleiche Caption-Position (Wrap ohne Extra-Padding/Rahmen); Text hellgrau, `font-weight: 400`.
+- **Topbar-Mitte:** „Übersicht“ → **Alle Seiten**; „Erste Seite“ → **Varianten** (Icon 2×1-Raster); „Letzte Seite“ → **Fehler** (Warn-Dreieck-Platzhalter).
+- **Varianten-Editor:** Button **„Foto schieben“** auch auf Seite 1 (wie auf Layout-Seiten); Drehen/Teleport/Zwischenspeicher bleiben ausgeblendet.
+- **Seite 1 Viewer:** Mitten-Topbar (Alle Seiten / Varianten / Index / Fehler) ausgeblendet — kein Seitensprung von der Varianten-Seite.
+- **Service Worker:** Cache `anweisungen-shell-v2.01` und `?v=2.01`.
 
 ## Neu in 2.00
 

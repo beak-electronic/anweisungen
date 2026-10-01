@@ -3974,8 +3974,8 @@ html.orient-portrait.app-h-fixed .page-viewport {
   top: 0;
   max-width: calc(100% - 8px);
   width: max-content;
-  min-width: 14rem; /* v1.88 */
-  padding: 4px;
+  min-width: 0; /* v2.01: nicht größer als Inhalt → gleiche Clamp-Logik Editor/Viewer */
+  padding: 0; /* v2.01: Editor/Viewer gleicher Text-Ursprung */
   box-sizing: border-box;
   background: transparent;
   border: none;
@@ -3984,10 +3984,12 @@ html.orient-portrait.app-h-fixed .page-viewport {
   touch-action: none;
 }
 .variant-caption-wrap.is-edit {
-  background: rgba(26, 31, 39, 0.92);
-  border: 2px solid #000;
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.45);
+  /* v2.01: gleiche Top-Left-Ankerung wie Viewer (kein Extra-Padding/Rahmen am Wrap) */
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
   cursor: grab;
 }
 .variant-caption-wrap.is-edit.is-dragging {
@@ -4019,29 +4021,36 @@ html.orient-portrait.app-h-fixed .page-viewport {
   background: transparent;
   border: none;
   box-shadow: none;
-  padding: 2px 4px;
+  padding: 0;
   min-width: 0;
   pointer-events: none;
 }
 .variant-caption-input {
   display: block;
   width: 100%;
-  min-width: 16rem; /* v1.88: doppelt so lang */
-  border: 2px solid #000;
-  border-radius: 6px;
-  background: #fff;
-  color: #111;
-  font: 700 0.95rem/1.25 system-ui, sans-serif;
-  padding: 6px 8px;
+  min-width: 16rem;
+  /* v2.01: kein Extra-Inset — Text-Ursprung = Viewer-Label */
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #c8c8c8;
+  font: 400 0.95rem/1.25 system-ui, sans-serif;
+  padding: 0;
   box-sizing: border-box;
   cursor: text;
+}
+.variant-caption-input:focus {
+  outline: none;
+  border-color: rgba(200, 200, 200, 0.45);
+  background: rgba(0, 0, 0, 0.28);
 }
 
 /* v1.91: Name + Kürzel nebeneinander; Griff ohne Sechs-Punkt-Icon */
 .variant-caption-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  /* v2.01: flex-start → Name-Eingabe top = Viewer-Label top */
+  align-items: flex-start;
   gap: 6px 8px;
   width: 100%;
   min-width: 16rem;
@@ -4061,26 +4070,26 @@ html.orient-portrait.app-h-fixed .page-viewport {
   pointer-events: auto;
 }
 .variant-kuerzel-label {
-  font: 600 0.7rem/1.1 system-ui, sans-serif;
-  color: #333;
+  font: 400 0.7rem/1.1 system-ui, sans-serif;
+  color: #a8a8a8;
   letter-spacing: 0.02em;
 }
 .variant-kuerzel-input {
   display: block;
   width: 100%;
-  border: 2px solid #000;
-  border-radius: 6px;
-  background: #fff;
-  color: #111;
-  font: 700 0.95rem/1.25 system-ui, sans-serif;
-  padding: 6px 8px;
+  border: 1px solid rgba(200, 200, 200, 0.35);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.28);
+  color: #c8c8c8;
+  font: 400 0.95rem/1.25 system-ui, sans-serif;
+  padding: 2px 4px;
   box-sizing: border-box;
   cursor: text;
   text-align: center;
 }
 .variant-caption-label {
-  color: #3a3a3a; /* v1.88: dunkelgrau, kein Schatten */
-  font: 700 0.95rem/1.25 system-ui, sans-serif;
+  color: #c8c8c8; /* v2.01: hellgrau, regular */
+  font: 400 0.95rem/1.25 system-ui, sans-serif;
   text-align: left;
   text-shadow: none;
   white-space: pre-wrap;
@@ -4280,6 +4289,19 @@ html.orient-portrait.app-h-fixed .page-viewport {
   display: none !important;
 }
 
+/* v2.01: auf Varianten nur „Foto schieben“ aus der Foto-Gruppe */
+.app.varianten-page-active.edit-mode #photoRotateBtn,
+.app.varianten-page-active.edit-mode #toolPhotoClipboard,
+.app.varianten-page-active.edit-mode #teleportBtn {
+  display: none !important;
+}
+
+
+
+/* v2.01: Seite 1 (Varianten) — keine Mitten-Sprung-Buttons (Alle Seiten/Varianten/Index/Fehler) */
+.app.varianten-page-active:not(.edit-mode) .top-center {
+  display: none !important;
+}
 
 /* v1.93: Stückliste-Button auf Varianten-Seite (Seite 1) ausblenden */
 .app.varianten-page-active #pdfViewBtn,

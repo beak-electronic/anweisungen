@@ -2001,7 +2001,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.00';
+  const APP_VERSION = '2.01';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -11153,7 +11153,7 @@
     const overviewTitleEl = document.getElementById('overviewTitle');
     if (overviewTitleEl) {
       const projName = projectDisplayTitle(loadedSaveFileName);
-      overviewTitleEl.textContent = projName ? ('Übersicht - ' + projName) : 'Übersicht';
+      overviewTitleEl.textContent = projName ? ('Alle Seiten - ' + projName) : 'Alle Seiten';
     }
 
     /* v1.88: Übersicht = Navigationsreihenfolge (eine Kachel pro pageGroup / Varianten-Sicht) */
@@ -11252,7 +11252,7 @@
       await new Promise((r) => setTimeout(r, 0));
     }
     if (failed > 0 && token === overviewToken) {
-      flash('Übersicht: ' + failed + ' Vorschau(en) fehlgeschlagen', 4000, 'error');
+      flash('Alle Seiten: ' + failed + ' Vorschau(en) fehlgeschlagen', 4000, 'error');
     }
   }
 
@@ -12882,7 +12882,7 @@
     },
     {
       title: 'Viewer: Blättern & Chrome',
-      body: 'Im Lesemodus wischen Sie horizontal zwischen den Seiten.\nEin Tip auf freie Fläche blendet die oberen Buttons ein oder aus. Übersicht zeigt alle Seiten als Miniaturen.',
+      body: 'Im Lesemodus wischen Sie horizontal zwischen den Seiten.\nEin Tip auf freie Fläche blendet die oberen Buttons ein oder aus. „Alle Seiten“ zeigt alle Seiten als Miniaturen.',
       spotlight: '#overviewBtn, #firstPageBtn, #indexPageBtn, #lastPageBtn',
       mode: 'viewer',
     },
@@ -12918,7 +12918,7 @@
     },
     {
       title: 'BEAK-Nr. & Seiten',
-      body: '„BEAK-Nr.“ setzt eine Teilenummer zum Abgleich mit der Stückliste.\nSeite löschen, Übersicht und Neue Seite verwalten die Seitenfolge. „Fertig“ beendet den Editor.',
+      body: '„BEAK-Nr.“ setzt eine Teilenummer zum Abgleich mit der Stückliste.\nSeite löschen, Alle Seiten und Neue Seite verwalten die Seitenfolge. „Fertig“ beendet den Editor.',
       spotlight: '#toolBeakNr, #removePageBtn, #overviewBtnEdit, #addPageBtn, #fertigBtn',
       mode: 'edit',
     },
