@@ -3992,6 +3992,29 @@ html.orient-portrait.app-h-fixed .page-viewport {
   padding: 0;
   cursor: grab;
 }
+/* v2.02 C: vier L-Ecken (Design-Auswahl) nur im Editor — Text-Ursprung unverändert */
+.variant-caption-wrap.is-edit::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  pointer-events: none;
+  z-index: 2;
+  --cap-accent: #dd007a;
+  --cap-len: 14px;
+  --cap-th: 2.5px;
+  background:
+    linear-gradient(var(--cap-accent), var(--cap-accent)) left top / var(--cap-len) var(--cap-th) no-repeat,
+    linear-gradient(var(--cap-accent), var(--cap-accent)) left top / var(--cap-th) var(--cap-len) no-repeat,
+    linear-gradient(var(--cap-accent), var(--cap-accent)) right top / var(--cap-len) var(--cap-th) no-repeat,
+    linear-gradient(var(--cap-accent), var(--cap-accent)) right top / var(--cap-th) var(--cap-len) no-repeat,
+    linear-gradient(var(--cap-accent), var(--cap-accent)) left bottom / var(--cap-len) var(--cap-th) no-repeat,
+    linear-gradient(var(--cap-accent), var(--cap-accent)) left bottom / var(--cap-th) var(--cap-len) no-repeat,
+    linear-gradient(var(--cap-accent), var(--cap-accent)) right bottom / var(--cap-len) var(--cap-th) no-repeat,
+    linear-gradient(var(--cap-accent), var(--cap-accent)) right bottom / var(--cap-th) var(--cap-len) no-repeat;
+}
+.variant-caption-wrap.is-edit.is-dragging::before {
+  opacity: 0.85;
+}
 .variant-caption-wrap.is-edit.is-dragging {
   cursor: grabbing;
   opacity: 0.95;
@@ -4033,7 +4056,7 @@ html.orient-portrait.app-h-fixed .page-viewport {
   border: 1px solid transparent;
   border-radius: 4px;
   background: transparent;
-  color: #c8c8c8;
+  color: #a8a8a8; /* v2.02: etwas dunkler */
   font: 400 0.95rem/1.25 system-ui, sans-serif;
   padding: 0;
   box-sizing: border-box;
@@ -4071,7 +4094,7 @@ html.orient-portrait.app-h-fixed .page-viewport {
 }
 .variant-kuerzel-label {
   font: 400 0.7rem/1.1 system-ui, sans-serif;
-  color: #a8a8a8;
+  color: #909090;
   letter-spacing: 0.02em;
 }
 .variant-kuerzel-input {
@@ -4080,7 +4103,7 @@ html.orient-portrait.app-h-fixed .page-viewport {
   border: 1px solid rgba(200, 200, 200, 0.35);
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.28);
-  color: #c8c8c8;
+  color: #a8a8a8;
   font: 400 0.95rem/1.25 system-ui, sans-serif;
   padding: 2px 4px;
   box-sizing: border-box;
@@ -4088,7 +4111,7 @@ html.orient-portrait.app-h-fixed .page-viewport {
   text-align: center;
 }
 .variant-caption-label {
-  color: #c8c8c8; /* v2.01: hellgrau, regular */
+  color: #a8a8a8; /* v2.02: etwas dunkler grau, regular */
   font: 400 0.95rem/1.25 system-ui, sans-serif;
   text-align: left;
   text-shadow: none;
@@ -4278,6 +4301,35 @@ html.orient-portrait.app-h-fixed .page-viewport {
   background: #000000;
 }
 
+/* v2.02: Übersicht/PDF-Export-Host liegt außerhalb #app — gleiche weiße Trenner wie Viewer */
+.export-render-host .varianten-stage .cell-split {
+  background: #ffffff;
+  border: none;
+  outline: none;
+  box-shadow: none;
+}
+.export-render-host .varianten-stage .cell-split > .cell,
+.export-render-host .varianten-stage .cell-split > .cell-leaf,
+.export-render-host .varianten-stage .varianten-leaf {
+  background: #ffffff;
+  border: none;
+  outline: none;
+  box-shadow: none;
+}
+.export-render-host .varianten-stage .split-handle {
+  border: none;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+}
+.export-render-host .varianten-stage .split-handle::before,
+.export-render-host .varianten-stage .split-handle::after {
+  display: none !important;
+  content: none !important;
+  box-shadow: none !important;
+}
+
+
 .app.varianten-page-active.edit-mode .layout-only-tool:not(.varianten-ok-tool),
 .app.varianten-page-active.edit-mode #toolRect,
 .app.varianten-page-active.edit-mode #toolCircle,
@@ -4295,6 +4347,12 @@ html.orient-portrait.app-h-fixed .page-viewport {
 .app.varianten-page-active.edit-mode #teleportBtn {
   display: none !important;
 }
+/* v2.02: Seite 1 — „Foto schieben“ allein sichtbar → voll gerundet (kein Gruppen-Rechtskant) */
+.app.varianten-page-active.edit-mode #photoMoveBtn.tool-dual-btn.btn.icon-btn {
+  border-radius: 8px !important;
+  margin-left: 0 !important;
+}
+
 
 
 

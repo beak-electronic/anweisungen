@@ -2001,7 +2001,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.01';
+  const APP_VERSION = '2.02';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -2521,8 +2521,15 @@
     });
     const groups = {};
     let total = 0;
+    /* v2.02: wie rebuildBeakUsage — nur Seiten der aktiven Variante
+       (gemeinsam + eigene; andere Varianten-Exklusivseiten nicht als „Nicht in Stückliste“). */
+    const vid = state.activeVariantId;
+    const useFilter = hasMultipleVariants() && !!vid;
+    const nav = useFilter ? getNavPages() : null;
     state.doc.pages.forEach((page, pageIdx) => {
       if (!page || !Array.isArray(page.annotations)) return;
+      if (useFilter && !pageVisibleInViewer(page, vid)) return;
+      const displayIdx = nav ? Math.max(0, nav.indexOf(page)) : pageIdx;
       page.annotations.forEach((a) => {
         if (!a || a.type !== 'beakNr') return;
         const key = normalizeBeakKey(a.beakDigits);
@@ -2532,8 +2539,8 @@
         const q = (typeof a.qty === 'number' && a.qty > 0) ? Math.round(a.qty) : 1;
         const g = groups[key] || (groups[key] = { key, qty: 0, pages: [], first: null });
         g.qty += q;
-        if (g.pages.indexOf(pageIdx) < 0) g.pages.push(pageIdx);
-        if (!g.first) g.first = { pageIdx, annId: a.id };
+        if (g.pages.indexOf(displayIdx) < 0) g.pages.push(displayIdx);
+        if (!g.first) g.first = { pageIdx, annId: a.id }; /* real index → goToPage */
       });
     });
     const num = (k) => { const d = String(k).replace(/\D/g, ''); return d ? parseInt(d, 10) : Number.POSITIVE_INFINITY; };
@@ -13593,6 +13600,83 @@
     window.__anw = {
       version: APP_VERSION,
       getActiveVariantId: () => state.activeVariantId,
+      getBeakUsage: () => Object.assign({}, state.beakUsage || {}),
+      getUnmatchedBeakKeys: (parts) => collectUnmatchedBeakLabels(Array.isArray(parts) ? parts : []).list.map((g) => g.key),
+      rebuildBeakUsage: () => { rebuildBeakUsage(); return Object.assign({}, state.beakUsage || {}); },
+      /* v2.02 smoke: needs ≥2 Varianten (from page); B-only page with unique BEAK */
+      seedAbgleichScopeFixture: () => {
+        syncVariantsFromPage();
+        let list = variantsList();
+        if (list.length < 2) {
+          const vp = getVariantenPage();
+          if (!vp || !vp.root) return { error: 'no-varianten-page' };
+          /* Ensure two named leaves via shallow split if needed */
+          const leaves = leafIdsInOrder(vp.root, []);
+          if (leaves.length < 2) return { error: 'need-split-varianten', leafCount: leaves.length };
+          leaves[0].caption = leaves[0].caption || 'Gerät A';
+          leaves[0].captionShort = leaves[0].captionShort || 'A';
+          if (!leaves[0].variantId) leaves[0].variantId = uid('v');
+          leaves[1].caption = leaves[1].caption || 'Gerät B';
+          leaves[1].captionShort = leaves[1].captionShort || 'B';
+          if (!leaves[1].variantId) leaves[1].variantId = uid('v');
+          syncVariantsFromPage();
+          list = variantsList();
+        }
+        if (list.length < 2) return { error: 'still-lt-2-variants', n: list.length };
+        const idA = list[0].id;
+        const idB = list[1].id;
+        state.activeVariantId = idA;
+        let shared = (state.doc.pages || []).find((p) => p && !isFixedPage(p) && !isVariantenPage(p) && !isIndexPage(p) && !isFehlerPage(p) && !pageVariantScopeIds(p));
+        if (!shared) {
+          shared = {
+            id: uid('p'), kind: 'layout', title: 'Shared',
+            root: { type: 'leaf', id: uid('l'), photo: null, caption: '', captionShort: '', captionX: 0.05, captionY: 0.78, variantId: null },
+            annotations: [], variantScope: 'all', pageGroupId: uid('g'),
+          };
+          const ix = (state.doc.pages || []).findIndex((p) => isIndexPage(p));
+          state.doc.pages.splice(ix >= 0 ? ix + 1 : Math.max(0, state.doc.pages.length - 1), 0, shared);
+        }
+        const gid = pageGroupIdOf(shared);
+        shared.pageGroupId = gid;
+        shared.variantScope = 'all';
+        if (!Array.isArray(shared.annotations)) shared.annotations = [];
+        shared.annotations = shared.annotations.filter((x) => !(x && String(x.id || '').indexOf('fix_') === 0));
+        shared.annotations.push({ id: 'fix_a_shared', type: 'beakNr', beakDigits: '1001', qty: 1, x: 10, y: 10, w: 14, h: 7 });
+        let pageB = (state.doc.pages || []).find((p) => {
+          if (!p || pageGroupIdOf(p) !== gid) return false;
+          const ids = pageVariantScopeIds(p);
+          return !!(ids && ids.length === 1 && ids[0] === idB);
+        });
+        if (!pageB) {
+          pageB = {
+            id: uid('p'), kind: 'layout', title: 'Nur B',
+            root: { type: 'leaf', id: uid('l'), photo: null, caption: '', captionShort: '', captionX: 0.05, captionY: 0.78, variantId: null },
+            annotations: [], variantScope: idB, pageGroupId: gid,
+          };
+          const at = state.doc.pages.indexOf(shared);
+          state.doc.pages.splice(at + 1, 0, pageB);
+        }
+        pageB.variantScope = idB;
+        pageB.pageGroupId = gid;
+        pageB.annotations = [{ id: 'fix_b_only', type: 'beakNr', beakDigits: '9999', qty: 1, x: 10, y: 20, w: 14, h: 7 }];
+        rebuildBeakUsage();
+        const partsA = [{ beakEdvNr: '1.001', bedarfStck: 1, description: 'Teil A', page: 1 }];
+        const unmatchedA = collectUnmatchedBeakLabels(partsA).list.map((g) => g.key);
+        const usageA = Object.assign({}, state.beakUsage);
+        const visibleA = (state.doc.pages || []).filter((p) => pageVisibleInViewer(p, idA)).map((p) => p.id);
+        state.activeVariantId = idB;
+        rebuildBeakUsage();
+        const partsB = [{ beakEdvNr: '9.999', bedarfStck: 1, description: 'Teil B', page: 1 }];
+        const unmatchedB = collectUnmatchedBeakLabels(partsB).list.map((g) => g.key);
+        const usageB = Object.assign({}, state.beakUsage);
+        state.activeVariantId = idA;
+        rebuildBeakUsage();
+        return {
+          idA, idB, usageA, usageB, unmatchedA, unmatchedB, visibleA,
+          okA: unmatchedA.indexOf('9.999') < 0 && unmatchedA.indexOf('9999') < 0,
+          okB: unmatchedB.indexOf('1.001') < 0 && unmatchedB.indexOf('1001') < 0,
+        };
+      },
       getPageIndex: () => state.doc.pageIndex,
       getPagesMeta: () => (state.doc.pages || []).map((p, i) => ({
         i, kind: p.kind, scope: p.variantScope, group: p.pageGroupId, id: p.id,

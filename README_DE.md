@@ -2,7 +2,15 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.01
+**Version:** 2.02
+
+## Neu in 2.02
+
+- **Varianten-Texte:** Farbe etwas dunkler (`#a8a8a8`), weiterhin `font-weight: 400` (Editor = Viewer).
+- **Editor Caption-Griff:** Vier L-Ecken in Accent `#dd007a` um den Varianten-Text (nur Editor; Viewer ohne Rahmen).
+- **Stückliste-Abgleich / Varianten:** „Nicht in der Stückliste“ und Mengen zählen nur noch BEAK-Nr. auf Seiten der **aktiven Variante** (nicht Exklusivseiten anderer Varianten).
+- **Seite 1 Editor:** „Foto schieben“ voll gerundet (kein harter Gruppenkant); **Alle Seiten**-Thumbs: Varianten-Trenner weiß wie Viewer.
+- **Service Worker:** Cache `anweisungen-shell-v2.02` und `?v=2.02`.
 
 ## Neu in 2.01
 
