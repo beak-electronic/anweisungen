@@ -3445,20 +3445,25 @@ html.overlay-scroll, html.overlay-scroll body { touch-action: auto; }
   margin-bottom: 16px;
   position: relative;
 }
-/* v1.93: Initialen-Overlay deckt Neues Projekt / Öffnen / Tour ab */
+/* v1.93/v1.99: Initialen-Overlay deckt Neues Projekt / Öffnen / Tour ab
+   – etwas größer als die Button-Spalte, eckig (kein border-radius), damit Pink nicht durchscheint */
 .welcome-initials-overlay {
   position: absolute;
-  inset: 0;
+  /* enlarge beyond welcome-actions so underlying buttons are fully covered */
+  top: -12px;
+  right: -14px;
+  bottom: -12px;
+  left: -14px;
   z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   justify-content: center;
   gap: 12px;
-  padding: 14px 12px;
+  padding: 20px 18px;
   box-sizing: border-box;
   background: var(--panel);
-  border-radius: 12px;
+  border-radius: 0;
 }
 .welcome-initials-overlay[hidden] { display: none !important; }
 .welcome-actions.initials-required > .welcome-btn {
@@ -3479,7 +3484,8 @@ html.overlay-scroll, html.overlay-scroll body { touch-action: auto; }
   box-sizing: border-box;
   text-align: center;
   text-transform: uppercase;
-  font: 800 1.15rem/1.2 system-ui, sans-serif;
+  font: 400 1.15rem/1.2 system-ui, sans-serif;
+  font-weight: 400;
   letter-spacing: 0.12em;
   padding: 10px 12px;
   border-radius: 8px;

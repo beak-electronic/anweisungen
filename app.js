@@ -454,7 +454,9 @@
     return all.filter((p) => pageVisibleInViewer(p, vid));
   }
 
-  /** Reale pageIndex → sichtbare Seite derselben Gruppe / nächster Nachbar (nie still auf 0 fallen). */
+  /** Reale pageIndex → sichtbare Seite derselben Gruppe / nächster Nachbar (nie still auf 0 fallen).
+   *  v1.99: Gruppen-Treffer über getNavPages (aktive Variante), inkl. Multi-Scope
+   *  (pageScopeIncludesVariant) — nicht nur pageVariantScope === vid. */
   function remapToVisiblePageIndex(realIdx) {
     const pages = state.doc.pages || [];
     const nav = getNavPages();
@@ -464,19 +466,23 @@
     if (idx >= pages.length) idx = pages.length - 1;
     const cur = pages[idx];
     if (cur && nav.indexOf(cur) >= 0) return idx;
-    /* Gleiche Gruppe: Spezialisierung der aktiven Variante, sonst Shared */
-    if (cur && !isFixedPage(cur) && !isVariantenPage(cur)) {
+    /* Gleiche Gruppe: die für die aktive Variante sichtbare Seite (Nav-Filter) */
+    if (cur && !isFixedPage(cur) && !isVariantenPage(cur) && !isIndexPage(cur) && !isFehlerPage(cur)) {
       const group = pageGroupIdOf(cur);
+      const siblings = pagesSharingGroup(group);
+      const inNav = siblings.find((p) => nav.indexOf(p) >= 0);
+      if (inNav) return pages.indexOf(inNav);
       const vid = state.activeVariantId;
       if (vid) {
-        const spec = pages.find(
-          (p) => !isFixedPage(p) && pageGroupIdOf(p) === group && pageVariantScope(p) === vid
-        );
-        if (spec) return pages.indexOf(spec);
+        const single = siblings.find((p) => {
+          const ids = pageVariantScopeIds(p);
+          return !!(ids && ids.length === 1 && ids[0] === vid);
+        });
+        if (single) return pages.indexOf(single);
+        const multi = siblings.find((p) => pageScopeIncludesVariant(p, vid));
+        if (multi) return pages.indexOf(multi);
       }
-      const shared = pages.find(
-        (p) => !isFixedPage(p) && pageGroupIdOf(p) === group && pageVariantScope(p) === 'all'
-      );
+      const shared = siblings.find((p) => !pageVariantScopeIds(p));
       if (shared && nav.indexOf(shared) >= 0) return pages.indexOf(shared);
     }
     /* Nächster Nachbar in Originalreihenfolge, der in nav liegt */
@@ -486,6 +492,15 @@
       }
     }
     return state.doc.pages.indexOf(nav[0]);
+  }
+
+  /** 1-basierte Zielseite (Index/Button) → reale pageIndex für aktive Variante. */
+  function resolveTargetPageRealIndex(tp) {
+    if (typeof tp !== 'number' || !isFinite(tp)) return -1;
+    const n = Math.round(tp);
+    const pages = state.doc.pages || [];
+    if (n < 1 || n > pages.length) return -1;
+    return remapToVisiblePageIndex(n - 1);
   }
 
   function navIndexOfPageIndex(realIdx) {
@@ -723,10 +738,14 @@
       const emb = normalizeFehlerEmbed(page.fehlerEmbed);
       if (emb) clone.fehlerEmbed = { rowIds: emb.rowIds.slice() };
     }
-    /* Original bleibt „all“ (Standard für übrige Varianten) */
-    if (pageVariantScope(page) === 'all') {
+    /* Original bleibt „all“ (Shared) — oder bei Multi-Teilmenge: Variante aus Scope nehmen */
+    const curIds = pageVariantScopeIds(page);
+    if (!curIds) {
       page.pageGroupId = group;
       page.variantScope = 'all';
+    } else if (curIds.length >= 2 && curIds.indexOf(variantId) >= 0) {
+      const left = curIds.filter((id) => id !== variantId);
+      page.variantScope = left.length === 1 ? left[0] : left.slice();
     }
     const at = state.doc.pages.indexOf(page);
     state.doc.pages.splice(at + 1, 0, clone);
@@ -738,9 +757,9 @@
     return clone;
   }
 
-  /** v1.88/v1.94/v1.98: Aktuelle Seite auf bestimmte Variante(n).
-   *  War die Seite noch „all“ und die Auswahl eine echte Teilmenge → wie +Variante:
-   *  Klon für die Teilmenge, Original bleibt Shared für Restgeräte (Chip + Inhalt). */
+  /** v1.88/v1.94/v1.99: Aktuelle Seite auf bestimmte Variante(n) umstellen (in place).
+   *  Kein Shared-Rest für nicht gewählte Geräte — Teilmenge (z. B. A|B) ist geschlossen;
+   *  + Variante splittet innerhalb dieser Teilmenge weiter. */
   function convertCurrentPageToVariantSubset(variantIds) {
     const ids = (variantIds || []).filter((id) => !!variantById(id));
     if (!ids.length) {
@@ -753,56 +772,21 @@
       return null;
     }
     stopLiveCamera();
-    const group = page.pageGroupId || page.id;
-    if (!page.pageGroupId) page.pageGroupId = group;
-    const allVariantIds = variantsList().map((v) => v.id);
-    const wasShared = !pageVariantScopeIds(page);
-    const properSubset = wasShared && ids.length < allVariantIds.length &&
-      ids.every((id) => allVariantIds.indexOf(id) >= 0);
-
-    let target = page;
-    if (properSubset) {
-      const scopeVal = ids.length === 1 ? ids[0] : ids.slice();
-      const clone = {
-        id: uid('p'),
-        kind: 'layout',
-        root: cloneCellFreshIds(page.root),
-        annotations: (page.annotations || []).map((a) => {
-          const na = { ...a, id: uid('a') };
-          if (a && a.photo) na.photo = clonePhoto(a.photo);
-          return na;
-        }),
-        highlight: !!page.highlight,
-        highlightLeafIds: [],
-        pageGroupId: group,
-        variantScope: scopeVal,
-      };
-      if (page.fehlerEmbed) {
-        const emb = normalizeFehlerEmbed(page.fehlerEmbed);
-        if (emb) clone.fehlerEmbed = { rowIds: emb.rowIds.slice() };
-      }
-      page.variantScope = 'all';
-      const at = state.doc.pages.indexOf(page);
-      state.doc.pages.splice(at + 1, 0, clone);
-      target = clone;
-    } else {
-      page.variantScope = ids.length === 1 ? ids[0] : ids.slice();
-      target = page;
-    }
-
+    if (!page.pageGroupId) page.pageGroupId = page.id;
+    page.variantScope = ids.length === 1 ? ids[0] : ids.slice();
     const activate = (state.activeVariantId && ids.indexOf(state.activeVariantId) >= 0)
       ? state.activeVariantId
       : ids[0];
     setActiveVariant(activate, { rerender: false });
     renderAll();
-    snapToIndex(state.doc.pages.indexOf(target), true);
+    snapToIndex(state.doc.pages.indexOf(page), true);
     if (typeof historyCommit === 'function') historyCommit();
     const labels = ids.map((id) => {
       const v = variantById(id);
       return v ? (variantShortLabel(v) || v.label) : id;
     });
     flash('Seite gilt nur für „' + labels.join(', ') + '“');
-    return target;
+    return page;
   }
 
   /** v1.88: Aktuelle Seite auf nur eine Variante umstellen (keine neue Seite). */
@@ -1141,36 +1125,38 @@
   }
 
   function unusedVariantsForSpecialize(page) {
-    /* v1.98: + Variante for devices that still need a specialization path.
-       Prefer uncovered devices (not on any scoped page) — e.g. leftover C
-       after „Nur für A, B“. Multi-subset must NOT hide + Variante.
-       Sole shared remnant after all others have exclusive singles → hide. */
+    /* v1.99: + Variante targets devices that can still be split out of the
+       current page-group pool — NOT unchecked page-1 devices outside the subset.
+       Example: „Nur für A, B“ → pool is {A,B}; +Variante offers A and/or B until
+       each has an exclusive single. C never appears. Shared „all“ pool: classic
+       remaining without singles (≥2). */
     const variants = variantsList();
     if (!page || isFixedPage(page) || !variants.length) return [];
     const group = pageGroupIdOf(page);
     const siblings = pagesSharingGroup(group);
     const singleOwned = new Set();
-    const scoped = new Set();
+    const multiMembers = new Set();
+    let hasShared = false;
     for (const pg of siblings) {
       const ids = pageVariantScopeIds(pg);
-      if (!ids) continue;
-      ids.forEach((id) => scoped.add(id));
+      if (!ids) { hasShared = true; continue; }
       if (ids.length === 1) singleOwned.add(ids[0]);
+      else ids.forEach((id) => multiMembers.add(id));
     }
-    const uncovered = variants.filter((v) => !scoped.has(v.id));
-    if (uncovered.length) {
-      if (uncovered.length === 1 && singleOwned.size === variants.length - 1) return [];
-      return uncovered;
+    /* Pool = devices that belong to this step's variant pages:
+       - shared present → all page-1 variants still without a single
+       - otherwise → only members of multi-scope pages (the closed subset) */
+    let pool;
+    if (hasShared) {
+      pool = variants.filter((v) => !singleOwned.has(v.id));
+      if (pool.length < 2) return []; /* sole shared remnant */
+      return pool;
     }
-    /* Everyone is on some scoped page: offer those without exclusive single
-       (can still split further), except sole remnant after full single-split. */
-    const remaining = variants.filter((v) => !singleOwned.has(v.id));
-    if (!remaining.length) return [];
-    if (remaining.length === 1 && singleOwned.size === variants.length - 1) return [];
-    /* Classic shared split: need ≥2 still without singles and a shared page */
-    const hasShared = siblings.some((pg) => !pageVariantScopeIds(pg));
-    if (hasShared && remaining.length >= 2) return remaining;
-    return remaining.length ? remaining : [];
+    pool = variants.filter((v) => multiMembers.has(v.id) && !singleOwned.has(v.id));
+    /* Need at least one multi page with ≥2 members still unspecialized as singles,
+       or ≥2 pool entries so splitting makes sense. */
+    if (pool.length < 2) return [];
+    return pool;
   }
 
   function updateVariantBar() {
@@ -1999,7 +1985,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '1.98';
+  const APP_VERSION = '1.99';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -4257,9 +4243,7 @@
             const hasText = String(row.text || '').trim().length > 0;
             if (hasText) {
               const tp = row.targetPage;
-              if (typeof tp === 'number' && tp >= 1 && tp <= state.doc.pages.length) {
-                goToPage(tp - 1);
-              } else {
+              if (!goToTargetPage(tp)) {
                 indexRowEl.classList.add('flash-invalid');
                 setTimeout(() => indexRowEl.classList.remove('flash-invalid'), 400);
               }
@@ -4281,10 +4265,9 @@
             return;
           }
           if (a && a.type === 'button') {
-            const tp = a.targetPage;
-            if (typeof tp === 'number' && tp >= 1 && tp <= state.doc.pages.length) {
-              goToPage(tp - 1);
-            } else {
+            if (typeof isGeraeteLaufzettelButton === 'function' && isGeraeteLaufzettelButton(a)) {
+              openGeraeteLaufzettelOverlay();
+            } else if (!goToTargetPage(a.targetPage)) {
               annEl.classList.add('flash-invalid');
               setTimeout(() => annEl.classList.remove('flash-invalid'), 400);
             }
@@ -5675,10 +5658,7 @@
               openGeraeteLaufzettelOverlay();
               return;
             }
-            const tp = a.targetPage;
-            if (typeof tp === 'number' && tp >= 1 && tp <= state.doc.pages.length) {
-              goToPage(tp - 1);
-            } else {
+            if (!goToTargetPage(a.targetPage)) {
               node.classList.add('flash-invalid');
               setTimeout(() => node.classList.remove('flash-invalid'), 400);
             }
@@ -5987,10 +5967,7 @@
         e.stopPropagation();
         const hasText = String(row.text || '').trim().length > 0;
         if (!hasText) return;
-        const tp = row.targetPage;
-        if (typeof tp === 'number' && tp >= 1 && tp <= state.doc.pages.length) {
-          goToPage(tp - 1);
-        } else {
+        if (!goToTargetPage(row.targetPage)) {
           rowEl.classList.add('flash-invalid');
           setTimeout(() => rowEl.classList.remove('flash-invalid'), 400);
         }
@@ -7001,13 +6978,23 @@
   }
 
   function goToPage(index) {
+    if (typeof index !== 'number' || !isFinite(index)) return;
     if (index < 0 || index >= state.doc.pages.length) return;
-    if (index === state.doc.pageIndex) return;
+    /* v1.99: immer über remap — Early-Return erst nach Varianten-Auflösung */
+    const dest = remapToVisiblePageIndex(index);
     stopLiveCamera();
     state.selectedId = null;
     state.selectedSplitId = null;
-    snapToIndex(index, true);
+    snapToIndex(dest, true);
     clearAnnotationSelectionVisual();
+  }
+
+  /** Index-/Button-Ziel (1-basiert) → Varianten-korrekte Seite. */
+  function goToTargetPage(tp) {
+    const dest = resolveTargetPageRealIndex(tp);
+    if (dest < 0) return false;
+    goToPage(dest);
+    return true;
   }
 
 
@@ -13580,4 +13567,34 @@
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushStorageOnHide(); });
   window.addEventListener('pagehide', flushStorageOnHide);
   void bootRestore().then(() => { try { warmupPdfPipeline(); } catch (_) {} });
+
+  /* v1.99 test/debug bridge (read-only helpers for automation) */
+  try {
+    window.__anw = {
+      version: APP_VERSION,
+      getActiveVariantId: () => state.activeVariantId,
+      getPageIndex: () => state.doc.pageIndex,
+      getPagesMeta: () => (state.doc.pages || []).map((p, i) => ({
+        i, kind: p.kind, scope: p.variantScope, group: p.pageGroupId, id: p.id,
+      })),
+      getNavMeta: () => getNavPages().map((p) => ({
+        real: state.doc.pages.indexOf(p), kind: p.kind, scope: p.variantScope,
+      })),
+      remap: (i) => remapToVisiblePageIndex(i),
+      resolveTarget: (tp) => resolveTargetPageRealIndex(tp),
+      goToTarget: (tp) => goToTargetPage(tp),
+      goToReal: (i) => goToPage(i),
+      setActiveVariantId: (id) => setActiveVariant(id),
+      setIndexRow: (text, tp) => {
+        const ip = (state.doc.pages || []).find((p) => isIndexPage(p));
+        if (!ip) return false;
+        if (!Array.isArray(ip.rows) || !ip.rows.length) ip.rows = [makeIndexRow('', 0)];
+        ip.rows[0].text = text;
+        ip.rows[0].targetPage = tp;
+        renderAll();
+        return true;
+      },
+    };
+  } catch (_) {}
+
 })();

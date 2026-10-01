@@ -2,12 +2,18 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 1.98
+**Version:** 1.99
+
+## Neu in 1.99
+
+- **Index-Sprung mit Varianten:** Arbeitsschritte-Links zielen auf die Seite der **aktiven Variante** (Gruppe/`variantScope` über `getNavPages`/`remapToVisiblePageIndex`), nicht auf eine blinde Absolute-Index-Position.
+- **Initialen-Overlay:** Abdeckpanel etwas größer (deckt Neues Projekt / Öffnen / Tour vollständig), eckige Ecken (kein Abrunden), Initialen-Eingabe in normaler Schriftstärke (nicht fett).
+- **Service Worker:** Cache `anweisungen-shell-v1.99` und `?v=1.99`.
 
 ## Neu in 1.98
 
 - **Geräte Laufzettel-Button:** Beim Anlegen eines Seiten-Buttons Option „Geräte Laufzettel“ — Name wird automatisch gesetzt. Im Viewer öffnet der Button ein schmales Overlay (~768px / ~60vw, Stückliste-Stil) mit `https://beak-electronic.github.io/geraete-laufzettel/`.
-- **+ Variante nach Teilmengen-Spezialisierung:** „Nur für bestimmte Variante(n)“ für z. B. A+B lässt Shared-Rest für C und **+ Variante** sichtbar (erst aus, wenn jedes Gerät eine Exclusive-Single hat bzw. alleiniger Shared-Rest nach Singles).
+- **+ Variante in Teilmenge:** „Nur für bestimmte Variante(n)“ für z. B. A+B schließt die Seite auf A|B (kein Chip/Shared für ungewähltes C). **+ Variante** splittet innerhalb der Teilmenge weiter (A vs B).
 - **Overlay:** postMessage `geraete-laufzettel` (`saved` → Overlay schließen; `closed`/`home` → iframe zurück zur Auswahl). Chrome „Auswahl“ lädt Startseite neu; „✕“ schließt zu Anweisungen. Ohne postMessage vom Laufzettel: best-effort über Overlay-Chrome.
 - Enthält v1.97: Toggle-Mitte stabil, kein Milchglas wenn eingeklappt.
 - **Service Worker:** Cache `anweisungen-shell-v1.98` und `?v=1.98`.
