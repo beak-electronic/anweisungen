@@ -2,7 +2,12 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.09
+**Version:** 2.10
+
+## Neu in 2.10
+
+- **iOS-Blur oben weg:** `ios-pwa-status-strip` war versehentlich **in** `.topbar` verschachtelt und griff deshalb nie (Strip liegt vor `.app`). Jetzt top-level wie Geräte Laufzettel / Bestückungsplan-opake Edge.
+- **Service Worker:** Cache `anweisungen-shell-v2.10` und `?v=2.10`.
 
 ## Neu in 2.09
 

@@ -1,10 +1,10 @@
 /* Anweisungen – Service Worker (App-Shell Offline-Cache). Keine .beak-Projekte cachen. */
-const CACHE = 'anweisungen-shell-v2.09';
+const CACHE = 'anweisungen-shell-v2.10';
 const SHELL = [
   './',
   './index.html',
-  './styles.css?v=2.09',
-  './app.js?v=2.09',
+  './styles.css?v=2.10',
+  './app.js?v=2.10',
   './manifest.webmanifest',
   './favicon.svg',
   './favicon.png',
