@@ -2,7 +2,12 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.11
+**Version:** 2.12
+
+## Neu in 2.12
+
+- **Willkommensbildschirm:** Reihenfolge getauscht – **Öffnen** oben, **Neues Projekt** darunter.
+- **Service Worker:** Cache `anweisungen-shell-v2.12` und `?v=2.12`.
 
 ## Neu in 2.11
 
