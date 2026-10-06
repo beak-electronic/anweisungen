@@ -2,7 +2,13 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.10
+**Version:** 2.11
+
+## Neu in 2.11
+
+- **Willkommensbildschirm:** „Neu hier? Tour anzeigen“ und der Hinweistext entfernt (Version bleibt). Farben getauscht: **Öffnen** magenta, **Neues Projekt** neutral. Untertitel „Arbeitsanweisungen erstellen und öffnen“, kleiner und einzeilig (auch kleines iPhone).
+- **Initialen-Eingabe:** ersetzt im Fluss die zwei Buttons (kein absolutes Overlay mehr), Eingabefeld im Button-Stil.
+- **Service Worker:** Cache `anweisungen-shell-v2.11` und `?v=2.11`.
 
 ## Neu in 2.10
 

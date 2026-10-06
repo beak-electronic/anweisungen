@@ -3466,8 +3466,10 @@ html.overlay-scroll, html.overlay-scroll body { touch-action: auto; }
 .welcome-sub {
   margin: 0;
   color: var(--muted);
-  font-size: 0.98rem;
+  /* v2.11: kleiner + einzeilig, auch auf kleinem iPhone */
+  font-size: clamp(0.72rem, 3.5vw, 0.9rem);
   line-height: 1.4;
+  white-space: nowrap;
 }
 .welcome-actions {
   display: flex;
@@ -3479,27 +3481,22 @@ html.overlay-scroll, html.overlay-scroll body { touch-action: auto; }
 /* v1.93/v1.99: Initialen-Overlay deckt Neues Projekt / Öffnen / Tour ab
    – etwas größer als die Button-Spalte, eckig (kein border-radius), damit Pink nicht durchscheint */
 .welcome-initials-overlay {
-  position: absolute;
-  /* enlarge beyond welcome-actions so underlying buttons are fully covered */
-  top: -12px;
-  right: -14px;
-  bottom: -12px;
-  left: -14px;
+  /* v2.11: im Fluss statt absolut — ersetzt die zwei Buttons, Karte passt sich an */
+  position: static;
   z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   justify-content: center;
   gap: 12px;
-  padding: 20px 18px;
+  padding: 4px 0 0;
   box-sizing: border-box;
-  background: var(--panel);
+  background: transparent;
   border-radius: 0;
 }
 .welcome-initials-overlay[hidden] { display: none !important; }
 .welcome-actions.initials-required > .welcome-btn {
-  pointer-events: none;
-  opacity: 0.35;
+  display: none;
 }
 .welcome-initials-msg {
   margin: 0;
@@ -3519,8 +3516,9 @@ html.overlay-scroll, html.overlay-scroll body { touch-action: auto; }
   font-weight: 400;
   letter-spacing: 0.12em;
   padding: 10px 12px;
-  border-radius: 8px;
-  border: 2px solid var(--border);
+  min-height: 48px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
   background: #0f1319;
   color: var(--text);
 }
