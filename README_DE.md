@@ -2,7 +2,15 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.12
+**Version:** 2.13
+
+## Neu in 2.13
+
+- **Kamera-Button bei mehreren Varianten (iPad/iPhone):** Mit ≥ 2 Varianten reagierte **Kamera** auf iPad und iPhone nicht (mit nur einer Variante ging es). Ursache: Jeder Tipp baute die untere Varianten-Leiste (Chips, Ein-/Ausklapp-Beschriftung) und die Seitenanzeige komplett neu auf – genau zwischen dem Loslassen des Fingers und dem Klick. iOS/iPadOS verwirft einen Tipp, wenn sich in diesem Moment der Inhalt ändert. Jetzt werden Leiste, Chips und Seitenanzeige nur noch neu geschrieben, wenn sich wirklich etwas geändert hat; ein Tipp auf Kamera/Fotos/Auslösen verändert die Seite nicht mehr.
+- **Swipe-Sperre:** Das „gerade gewischt“-Flag wird bei jeder neuen Berührung zurückgesetzt und kann Kamera/Fotos nicht mehr dauerhaft blockieren.
+- **Maus/Trackpad (Safari 26+, Chrome):** Klick auf Kamera/Fotos/Auslösen/Abbrechen (auch im Fotozwischenspeicher) landete wegen Pointer-Capture des Seiten-Wischens auf der Seitenfläche statt auf dem Button. Capture erst, wenn wirklich horizontal gewischt wird.
+- **iOS-Absicherung:** Kommt nach einem kurzen Tipp auf Kamera/Fotos/Auslösen/Abbrechen kein `click` an, löst die App den Button nach 450 ms selbst aus (kein Doppel-Auslösen).
+- **Service Worker:** Cache `anweisungen-shell-v2.13` und `?v=2.13`.
 
 ## Neu in 2.12
 

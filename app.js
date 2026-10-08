@@ -1031,10 +1031,23 @@
   function renderVariantBarChips(options) {
     const host = document.getElementById('variantBarChips');
     if (!host) return;
-    host.innerHTML = '';
     const opts = options || [];
     const onlyOne = opts.length <= 1;
-    for (const opt of opts) {
+    /* v2.13: Chips nur neu bauen, wenn sich Inhalt/Zustand geändert hat.
+       updateVariantBar() läuft bei JEDEM Tap (pointerup → snapToIndex →
+       updateChromeForPage). Der bisherige innerHTML-Neuaufbau mitten im Tap
+       (zwischen touchend und dem synthetischen click) ließ iOS/iPadOS den Tap
+       verwerfen → Kamera-Button reagierte bei ≥2 Varianten (Leiste sichtbar)
+       nicht. Klick-Handler lesen die aktuellen Optionen über host.__variantOpts. */
+    const sig = JSON.stringify(opts.map((o) => [
+      o.id || '', o.label || '', o.title || '', !!o.current, !!o.inert,
+      Array.isArray(o.groupIds) ? o.groupIds.join(',') : '',
+    ]));
+    host.__variantOpts = opts;
+    if (host.__variantSig === sig && host.childElementCount === opts.length) return;
+    host.__variantSig = sig;
+    host.innerHTML = '';
+    opts.forEach((opt, optIdx) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'variant-chip' + (opt.current ? ' is-active' : '');
@@ -1051,10 +1064,13 @@
         /* Aktiver Chip: outlined, kein Wechsel nötig */
         b.addEventListener('click', (e) => { e.preventDefault(); });
       } else {
-        b.addEventListener('click', () => { void activateVariantChip(opt); });
+        b.addEventListener('click', () => {
+          const cur = (host.__variantOpts && host.__variantOpts[optIdx]) || opt;
+          void activateVariantChip(cur);
+        });
       }
       host.appendChild(b);
-    }
+    });
   }
 
   async function activateVariantChip(opt) {
@@ -1168,12 +1184,15 @@
     const label = document.getElementById('variantBarToggleLabel');
     if (!bar) return;
     bar.classList.toggle('is-collapsed', !!variantBarCollapsed);
+    /* v2.13: nur schreiben, wenn sich etwas ändert (kein DOM-Umbau während eines Taps) */
+    const txt = variantBarCollapsed ? 'Varianten-Leiste ausklappen' : 'Varianten-Leiste einklappen';
     if (btn) {
-      btn.setAttribute('aria-expanded', variantBarCollapsed ? 'false' : 'true');
-      btn.title = variantBarCollapsed ? 'Varianten-Leiste ausklappen' : 'Varianten-Leiste einklappen';
+      const exp = variantBarCollapsed ? 'false' : 'true';
+      if (btn.getAttribute('aria-expanded') !== exp) btn.setAttribute('aria-expanded', exp);
+      if (btn.title !== txt) btn.title = txt;
     }
-    if (label) {
-      label.textContent = variantBarCollapsed ? 'Varianten-Leiste ausklappen' : 'Varianten-Leiste einklappen';
+    if (label && label.textContent !== txt) {
+      label.textContent = txt;
     }
   }
 
@@ -1229,12 +1248,18 @@
     /* v1.88: Varianten- und Fehlerseite gelten immer für alle → keine untere Leiste */
     const hideBookendBar = !!(page && (isVariantenPage(page) || isFehlerPage(page)));
     const show = !!(state.editMode && variants.length >= 2 && !hideBookendBar);
-    bar.hidden = !show;
+    /* v2.13: Attribute/DOM nur bei echter Änderung schreiben (siehe renderVariantBarChips) */
+    const setHidden = (node, h) => { if (node && node.hidden !== !!h) node.hidden = !!h; };
+    setHidden(bar, !show);
     el.app.classList.toggle('variant-bar-visible', show);
-    if (switchBtn) { switchBtn.hidden = true; switchBtn.setAttribute('aria-hidden', 'true'); }
+    if (switchBtn) {
+      setHidden(switchBtn, true);
+      if (switchBtn.getAttribute('aria-hidden') !== 'true') switchBtn.setAttribute('aria-hidden', 'true');
+    }
     if (!show) {
       const host = document.getElementById('variantBarChips');
-      if (host) host.innerHTML = '';
+      if (host && host.firstChild) host.innerHTML = '';
+      if (host) { host.__variantSig = null; host.__variantOpts = null; }
       bar.classList.remove('is-collapsed');
       return;
     }
@@ -1248,8 +1273,8 @@
     renderVariantBarChips(switchOpts);
 
     if (!onLayout) {
-      if (addBtn) addBtn.hidden = true;
-      if (onlyBtn) onlyBtn.hidden = true;
+      setHidden(addBtn, true);
+      setHidden(onlyBtn, true);
       return;
     }
 
@@ -1265,8 +1290,8 @@
     const pageAlreadyMulti =
       siblings.length >= 2 || specialized.length >= 1 || !!pageVariantScopeIds(page);
 
-    if (addBtn) addBtn.hidden = !!hideAdd;
-    if (onlyBtn) onlyBtn.hidden = !!pageAlreadyMulti;
+    setHidden(addBtn, hideAdd);
+    setHidden(onlyBtn, pageAlreadyMulti);
   }
 
   async function onVariantAddClick() {
@@ -2057,7 +2082,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.12';
+  const APP_VERSION = '2.13';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -3942,7 +3967,8 @@
     const nav = getNavPages();
     const n = nav.length || 1;
     const i = navIndexOfPageIndex(state.doc.pageIndex) + 1;
-    el.pageIndicator.textContent = i + ' / ' + n;
+    const txt = i + ' / ' + n;
+    if (el.pageIndicator.textContent !== txt) el.pageIndicator.textContent = txt;
   }
 
   let trackDrag = null;
@@ -4179,6 +4205,10 @@
 
   function onViewportPointerDown(e) {
     if (e.button != null && e.button !== 0) return;
+    /* v2.13: Jede neue Geste setzt das Swipe-Flag zurück (vorher nur bei Tap im
+       pointerup – blieb nach Wischen hängen, wenn der nächste Tap gar keinen
+       Track-Drag startete, z. B. Hochformat / blockierte Ziele). */
+    trackDragDidPageSwipe = false;
     if (document.documentElement.classList.contains('orient-portrait')) return; /* v1.81: vertikal scrollen */
     if (isPageDragBlocked(e.target)) return;
     if (drag) return;
@@ -4201,8 +4231,16 @@
       axis: null,
       moved: false,
       target: e.target,
+      captured: false,
     };
-    try { el.pageViewport.setPointerCapture(e.pointerId); } catch (_) {}
+    /* v2.13: Kamera/Fotos/Auslösen/Abbrechen – Pointer NICHT sofort capturen.
+       Neuere WebKit-Versionen (Safari/iPadOS 26+, auch Chrome bei Maus) schicken den
+       click laut Pointer-Events-Spec an das Capture-Element (#pageViewport) statt an
+       den Button → Kamera-Tap tat gar nichts. Capture erst, wenn die Geste wirklich
+       zum horizontalen Seiten-Wischen wird (onViewportPointerMove). */
+    if (!(e.target && e.target.closest && e.target.closest('.cell-kamera-wrap'))) {
+      captureTrackDragPointer();
+    }
 
     if (state.editMode && !state.splitTool) {
       const onSplit = !!(e.target.closest && e.target.closest('.split-handle'));
@@ -4230,6 +4268,13 @@
   }
 
   let trackDragDidPageSwipe = false;
+
+  /** v2.13: Pointer-Capture für Seiten-Wischen (ggf. verzögert, s. onViewportPointerDown). */
+  function captureTrackDragPointer() {
+    if (!trackDrag || trackDrag.captured) return;
+    trackDrag.captured = true;
+    try { el.pageViewport.setPointerCapture(trackDrag.pointerId); } catch (_) {}
+  }
 
   function onViewportPointerMove(e) {
     if (!trackDrag || trackDrag.pointerId !== e.pointerId) return;
@@ -4281,6 +4326,7 @@
     if (trackDrag.axis !== 'h') return;
 
     trackDrag.moved = true;
+    captureTrackDragPointer(); /* v2.13: spätes Capture bei Start auf Kamera-Buttons */
     e.preventDefault();
     const navLen = getNavPages().length;
     const navIdx = navIndexOfPageIndex(state.doc.pageIndex);
@@ -7475,6 +7521,9 @@
       trackDrag = null;
     }
     if (a.type === 'photoClipboard' && !isHandle) {
+      /* v2.13: Kamera/Fotos im Fotozwischenspeicher – kein Ann-Drag/Capture,
+         sonst landet der click (WebKit/Safari 26+) am .ann statt am Button. */
+      if (e.target.closest && e.target.closest('.cell-kamera-wrap')) return;
       if (state.teleportMode) {
         onTeleportPhotoHolderPointer(e, a);
         return;
@@ -12436,6 +12485,56 @@
     }
   });
   el.pageTrack.addEventListener('transitionend', onTrackTransitionEnd);
+
+  /* v2.13: iOS-Absicherung für Kamera/Fotos/Auslösen/Abbrechen.
+     Auf echten iOS-Geräten (iPad + iPhone, WebKit/Safari 26+) kam der click nicht
+     mehr am Button an (Pointer-Capture-Retargeting). Primär-Fix: kein frühes Capture
+     auf diesen Buttons (onViewportPointerDown). Zusätzlich: kurzer Tap (< 12 px) auf
+     einen Kamera-Button ohne nachfolgenden click → Button nach 450 ms selbst auslösen;
+     ein verspäteter echter click wird dann verworfen (kein Doppel-Auslösen). */
+  const CAM_BTN_SEL = '.cell-kamera-wrap .cell-cam-seg-btn, .cell-kamera-wrap .cell-cam-cancel';
+  let camTap = null;
+  let camClickSeenAt = 0;
+  let camSuppressUntil = 0;
+  document.addEventListener('pointerdown', (e) => {
+    const t = e.target;
+    const b = t && t.closest ? t.closest(CAM_BTN_SEL) : null;
+    camTap = b ? { btn: b, id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now() } : null;
+  }, true);
+  document.addEventListener('pointercancel', (e) => {
+    if (camTap && camTap.id === e.pointerId) camTap = null;
+  }, true);
+  document.addEventListener('pointerup', (e) => {
+    const tap = camTap;
+    camTap = null;
+    if (!tap || tap.id !== e.pointerId) return;
+    if (Math.hypot(e.clientX - tap.x, e.clientY - tap.y) >= 12) return;
+    const upAt = performance.now();
+    if (upAt - tap.t > 1000) return;
+    setTimeout(() => {
+      if (camClickSeenAt >= upAt) return; /* normaler click ist angekommen */
+      if (trackDragDidPageSwipe) return;
+      let btn = tap.btn;
+      if (!btn || !btn.isConnected) {
+        const hit = document.elementFromPoint(tap.x, tap.y);
+        btn = hit && hit.closest ? hit.closest(CAM_BTN_SEL) : null;
+      }
+      if (!btn || !btn.isConnected) return;
+      camSuppressUntil = performance.now() + 700;
+      try { btn.click(); } catch (_) {}
+    }, 450);
+  }, true);
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+    const b = t && t.closest ? t.closest(CAM_BTN_SEL) : null;
+    if (!b) return;
+    if (e.isTrusted && performance.now() < camSuppressUntil) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      return;
+    }
+    camClickSeenAt = performance.now();
+  }, true);
   /* v1.81: Highlight-Fotofeld per Tap (auch wenn kein Seiten-Drag startete) */
   el.pageTrack.addEventListener('click', (e) => {
     if (!state.editMode) return;
