@@ -2,7 +2,11 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.14
+**Version:** 2.15
+
+## Neu in 2.15
+
+- Fotos (Kamera und eingefügte Bilder) werden jetzt auf max. 1500 px an der langen Kante verkleinert (vorher 2500 px). Das hält die Projektdateien klein.
 
 ## Neu in 2.14
 

@@ -2082,7 +2082,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.14';
+  const APP_VERSION = '2.15';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -8069,7 +8069,7 @@
     const video = state.liveVideoEl;
     const leafId = state.liveLeafId;
     if (!state.stream || !video || !video.videoWidth || !leafId) return;
-    // v1.17: Kamerabild auf max. 2500 px (lange Kante) begrenzen
+    // v2.15: Kamerabild auf max. 1500 px (lange Kante) begrenzen
     const k0 = Math.min(1, PHOTO_MAX_EDGE / Math.max(video.videoWidth, video.videoHeight));
     const w = Math.max(1, Math.round(video.videoWidth * k0));
     const h = Math.max(1, Math.round(video.videoHeight * k0));
@@ -10309,7 +10309,7 @@
   }
 
   /* ---- v1.17: Große Fotos beim Einfügen verkleinern (Qualität bleibt gut) ---- */
-  const PHOTO_MAX_EDGE = 2500;
+  const PHOTO_MAX_EDGE = 1500; // v2.15: vorher 2500
   const PHOTO_JPEG_Q = 0.85;
   const PHOTO_MAX_BYTES = 4 * 1024 * 1024;
 
