@@ -2082,7 +2082,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.13';
+  const APP_VERSION = '2.14';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -8014,12 +8014,17 @@
       let stream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } },
+          // v2.14: hohe Auflösung anfordern (ohne Vorgabe liefert iOS nur ~640×480)
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 4032 },
+            height: { ideal: 3024 },
+          },
           audio: false,
         });
       } catch (_) {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user' },
+          video: { facingMode: 'user', width: { ideal: 4032 }, height: { ideal: 3024 } },
           audio: false,
         });
       }
@@ -8072,10 +8077,12 @@
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(video, 0, 0, w, h);
     let dataUrl;
     try {
-      dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+      dataUrl = canvas.toDataURL('image/jpeg', 0.92);
     } catch (_) {
       dataUrl = canvas.toDataURL('image/png');
     }

@@ -2,7 +2,12 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.13
+**Version:** 2.14
+
+## Neu in 2.14
+
+- Kamera: Die App fordert jetzt die volle Kameraauflösung an (bis 4032 × 3024). Vorher lieferte iOS ohne Vorgabe nur ein kleines Vorschaubild (~640 × 480).
+- Fotos werden weiterhin auf max. 2500 px (lange Kante) begrenzt und mit etwas höherer JPEG-Qualität gespeichert.
 
 ## Neu in 2.13
 
