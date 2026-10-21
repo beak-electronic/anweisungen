@@ -2,7 +2,14 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.16
+**Version:** 2.17
+
+## Neu in 2.17
+
+- **BEAK Stückliste – Dezimalmengen:** Mengen mit Komma in der Spalte „Bedarf Stck“ (z. B. Meterware wie Flachbandkabel: **0,270** oder **0,08**) werden jetzt richtig erkannt. Bisher las die App bei solchen Zeilen eine falsche Zahl aus einer anderen Spalte (z. B. 213 bzw. 77 aus „Mengen System“). Die Menge wird wie in der PDF angezeigt (z. B. „0,270“), auch in den Hinweisen, Tooltips und in der Summe mehrerer Zeilen. BEAK-Nummern mit Punkt (z. B. 1.519) und alle ganzzahligen Mengen werden unverändert gelesen.
+- **BEAK-Nr. (1.234) – Menge dezimal:** Die Menge einer BEAK-Nr.-Markierung darf jetzt auch eine Dezimalzahl sein, z. B. **0,27x 1.519** oder **0,08x 2.515**. Komma oder Punkt sind als Dezimalzeichen erlaubt („0.5“ wird zu „0,5“); eine Nummer wie 1.519 wird weiterhin als BEAK-Nr. erkannt. Der Ablauf bleibt gleich: Menge eintippen, Enter (oder Leertaste/x), dann die Nummer – der Punkt in der Nummer wird wie bisher automatisch gesetzt. Auf iPad/iPhone zeigt die Zifferntastatur jetzt auch ein Komma. Angezeigt wird die Menge deutsch mit Komma (z. B. „0,27x 1.519“). Ganze Mengen verhalten sich genau wie bisher.
+- **Abgleich mit Dezimalmengen:** Grün/Rot vergleicht die Summe der platzierten Mengen mit dem Bedarf, jetzt auch dezimal: 0,27x 1.519 passt zum Bedarf 0,270 (grün).
+- **Service Worker:** Cache `anweisungen-shell-v2.17` und `?v=2.17`.
 
 ## Neu in 2.16
 

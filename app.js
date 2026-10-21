@@ -2307,11 +2307,35 @@
     return d;
   }
 
+  /* v2.17: Menge einer BEAK-Nr.-Markierung darf dezimal sein (Meterware: 0,27 / 0,08 / 0,5).
+     Ganzzahlen bleiben Ganzzahlen; Dezimal auf 4 Stellen gerundet (kein Float-Rauschen). */
+  function normBeakQty(qty) {
+    if (typeof qty !== 'number' || !isFinite(qty) || !(qty > 0)) return 1;
+    const r = Math.round(qty * 1e4) / 1e4;
+    return r > 0 ? r : 1;
+  }
+  /** Menge deutsch: 3 → „3“, 0.27 → „0,27“. */
+  function formatBeakQty(qty) {
+    const q = normBeakQty(qty);
+    return Number.isInteger(q) ? String(q) : String(q).replace('.', ',');
+  }
+  /** Mengen-Teil einer Eingabe → Zahl oder null. Komma immer dezimal; Punkt nur, wenn eindeutig
+      (1–2 Nachkommastellen, z. B. „0.5“, „2.25“, oder führende 0 wie „0.270“) – „1.519“ ist eine BEAK-Nr. */
+  function parseBeakQtyToken(raw) {
+    const s = String(raw || '').trim().replace(/\s/g, '');
+    let m = /^(\d{0,3}),(\d{0,4})$/.exec(s);
+    if (!m) m = /^(\d{1,3})\.(\d{1,2})$/.exec(s) || /^(0?)\.(\d{1,4})$/.exec(s);
+    if (!m || !(m[1] + m[2])) return null;
+    const n = parseFloat((m[1] || '0') + '.' + (m[2] || '0'));
+    return isFinite(n) ? n : null;
+  }
+
   function beakNrDisplay(qty, digits) {
-    const q = (typeof qty === 'number' && isFinite(qty) && qty > 0) ? Math.round(qty) : 1;
+    const q = normBeakQty(qty);
     const formatted = formatBeakNr(digits || '1234') || '1.234';
-    /* v1.14: Menge 1 → nur die Nummer (ohne „1x “); ab 2 → „Nx “ */
-    return q > 1 ? q + 'x ' + formatted : formatted;
+    /* v1.14: Menge 1 → nur die Nummer (ohne „1x “); ab 2 → „Nx “
+       v2.17: Dezimalmenge → „0,27x 1.519“ */
+    return q !== 1 ? formatBeakQty(q) + 'x ' + formatted : formatted;
   }
 
   function normalizeBeakAnnotation(a) {
@@ -2320,7 +2344,7 @@
        fehlende Menge = 1 */
     const fromText = (a.beakDigits == null && a.text) ? parseBeakInput(a.text, null) : null;
     const digits = String(a.beakDigits != null ? a.beakDigits : (fromText ? fromText.beakDigits : '')).replace(/\D/g, '') || '1234';
-    let qty = typeof a.qty === 'number' && isFinite(a.qty) ? Math.round(a.qty) : (fromText ? fromText.qty : 1);
+    let qty = typeof a.qty === 'number' && isFinite(a.qty) ? normBeakQty(a.qty) : (fromText ? fromText.qty : 1);
     if (!(qty > 0)) qty = 1;
     return {
       id: a.id || uid('a'),
@@ -2341,24 +2365,28 @@
      iPad-Eingabe „Menge → Enter → Nummer“), Nummer bleibt. Leer = keine Änderung (null). */
   function isBeakQtyOnlyInput(raw) {
     const s = String(raw || '').trim();
-    return /^\d{1,3}$/.test(s);
+    if (/^\d{1,3}$/.test(s)) return true;
+    return parseBeakQtyToken(s) != null; /* v2.17: „0,27“, „0.5“ */
   }
+  /* v2.17: Menge auch dezimal: „0,27x 1.519“, „0,08 x 2515“, „0.5x1519“, „,5x 1.519“. */
   function parseBeakInput(raw, cur) {
     const s = String(raw || '').trim().replace(/×/g, 'x');
     const curDigits = String((cur && cur.beakDigits) || '').replace(/\D/g, '') || '1234';
     if (!s) return null;
-    const m = s.match(/^(\d*)\s*[xX]+\s*([\d.\s]*)$/);
-    if (m) {
-      const q = parseInt(m[1], 10);
+    const m = s.match(/^(\d*(?:[.,]\d*)?)\s*[xX]+\s*([\d.\s]*)$/);
+    if (m && (/^\d*$/.test(m[1]) || parseBeakQtyToken(m[1]) != null)) {
+      const q = /^\d*$/.test(m[1]) ? parseInt(m[1], 10) : parseBeakQtyToken(m[1]);
       const digits = m[2].replace(/\D/g, '');
-      return { qty: (isFinite(q) && q > 0) ? q : 1, beakDigits: digits || curDigits };
+      return { qty: (isFinite(q) && q > 0) ? normBeakQty(q) : 1, beakDigits: digits || curDigits };
     }
     const onlyDigits = s.replace(/\D/g, '');
     if (!onlyDigits) return null;
-    if (isBeakQtyOnlyInput(s)) {
+    if (/^\d{1,3}$/.test(s)) {
       const q = parseInt(onlyDigits, 10);
       return { qty: (isFinite(q) && q > 0) ? q : 1, beakDigits: curDigits };
     }
+    const dq = parseBeakQtyToken(s);
+    if (dq != null) return { qty: dq > 0 ? normBeakQty(dq) : 1, beakDigits: curDigits };
     return { qty: 1, beakDigits: onlyDigits };
   }
 
@@ -2375,8 +2403,8 @@
         if (!a || a.type !== 'beakNr') continue;
         const key = formatBeakNr(a.beakDigits) || String(a.beakDigits || '').replace(/\D/g, '');
         if (!key) continue;
-        const q = (typeof a.qty === 'number' && a.qty > 0) ? Math.round(a.qty) : 1;
-        tally[key] = (tally[key] || 0) + q;
+        const q = (typeof a.qty === 'number' && a.qty > 0) ? normBeakQty(a.qty) : 1;
+        tally[key] = bomRoundQty((tally[key] || 0) + q); /* v2.17: Dezimal (0,27) */
       }
     }
     state.beakUsage = tally;
@@ -2407,7 +2435,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.16';
+  const APP_VERSION = '2.17';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -2549,12 +2577,53 @@
     return false;
   }
 
+  /* v2.17: Dezimalmengen mit Komma (Meterware o. ä.: „0,270“, „0,08“, „1.234,5“).
+     Punkt allein bleibt Tausendertrenner bzw. BEAK-Nr. (1.519) – nie Dezimalpunkt. */
+  const BOM_QTY_DEC_RE = /^(\d{1,5}|\d{1,3}(?:\.\d{3})+),(\d{1,4})$/;
+  function bomParseDecimalQty(compact) {
+    const m = BOM_QTY_DEC_RE.exec(compact);
+    if (!m) return null;
+    const n = parseFloat(m[1].replace(/\./g, '') + '.' + m[2]);
+    return isFinite(n) ? n : null;
+  }
+  /** Mengen-Arithmetik (Summe mehrerer Zeilen) ohne Float-Rauschen (0,1 + 0,2). */
+  function bomRoundQty(n) {
+    return Math.round(n * 1e6) / 1e6;
+  }
+  /** Anzeige einer Bedarf-Menge: Ganzzahl wie bisher (String), Dezimal deutsch mit Komma;
+      passt `text` (Original-Schreibweise aus der PDF, z. B. „0,270“) zum Wert, wird sie behalten. */
+  function formatBomQty(n, text) {
+    if (typeof n !== 'number' || !isFinite(n)) return String(n);
+    if (text) {
+      const t = String(text).trim().replace(/\s/g, '');
+      const v = bomParseDecimalQty(t);
+      if (v != null && Math.abs(v - n) < 1e-9) return t;
+    }
+    if (Number.isInteger(n)) return String(n);
+    let str = bomRoundQty(n).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+    return str.replace('.', ',');
+  }
+  /** Anzeige eines Teils (Summe) bzw. einer Fundstelle. */
+  function bomQtyLabel(obj) {
+    if (!obj) return '';
+    return formatBomQty(obj.bedarfStck, obj.bedarfText);
+  }
+  /** Grün/Rot: platzierte Menge (Summe der Markierungs-Mengen, v2.17 auch dezimal wie „0,27x 1.519“)
+      gleich Bedarf. Ganzzahl exakt wie bisher; Dezimal mit Rundungstoleranz (0,270 = 0,27). */
+  function bomQtyMatches(placed, bedarf) {
+    if (typeof bedarf !== 'number' || !isFinite(bedarf)) return false;
+    if (Number.isInteger(bedarf)) return placed === bedarf;
+    return Math.abs(placed - bedarf) < 1e-6;
+  }
+
   function parseBedarfFromTokenList(tokens, startIdx) {
     for (let i = startIdx; i < tokens.length; i++) {
       const raw = String(tokens[i] || '').trim();
       const compact = raw.replace(/\s/g, '');
       if (/^\d{1,3}\.\d{3}$/.test(compact)) continue;
       if (isLagerplatzToken(raw)) continue;
+      const dec = bomParseDecimalQty(compact);
+      if (dec != null) return dec;
       if (!/^\d{1,5}$/.test(compact)) continue;
       const n = parseInt(compact, 10);
       if (!isFinite(n) || n < 0 || n > 9999) continue;
@@ -2582,7 +2651,9 @@
     const bedarf = parseBedarfFromTokenList(tokens, 0);
     if (bedarf == null) return null;
     const desc = j.slice(0, hit.index).trim();
-    return { edv: hit.edv, bedarf: bedarf, description: desc };
+    const bedarfText = Number.isInteger(bedarf) ? null
+      : (tokens.find((t) => bomParseDecimalQty(t) === bedarf) || null);
+    return { edv: hit.edv, bedarf: bedarf, description: desc, bedarfText: bedarfText };
   }
 
   function normalizeBeakKey(raw) {
@@ -2607,7 +2678,7 @@
    * Koordinaten, y nach oben). Spalten werden aus den Kopfzellen „EDV-Nr.“ und
    * „Bedarf“/„Stck“ gelernt (X-Bereich [x0,x1]; Zahlen stehen rechtsbündig).
    * Pro Tabellenzeile: EDV-Zelle (d.ddd / ddd.ddd) im EDV-Band, Bedarf-Zelle
-   * (Ganzzahl) im Bedarf-Band. Liefert Zeilen-BBox für die PDF-Markierung. */
+   * (Ganzzahl oder v2.17 Dezimal mit Komma, z. B. 0,270) im Bedarf-Band. Liefert Zeilen-BBox für die PDF-Markierung. */
   const BOM_EDV_CELL_RE = /^\d{1,3}\.\d{3}$/;
 
   function bomItemsFromTextContent(tc) {
@@ -2678,6 +2749,8 @@
     const s = String(raw || '').trim().replace(/\s/g, '');
     if (/^\d{1,5}$/.test(s)) return parseInt(s, 10);
     if (/^\d{1,3}(\.\d{3})+$/.test(s)) return parseInt(s.replace(/\./g, ''), 10); // 1.000
+    const dec = bomParseDecimalQty(s); // v2.17: 0,270 / 0,08 / 1.234,5
+    if (dec != null) return dec;
     return null;
   }
 
@@ -2719,6 +2792,7 @@
       let bedarfCell = null;
       let desc = '';
       let source = 'spalte';
+      let bedarfTextRaw = null;
 
       if (edvCell) {
         desc = r.cells.filter((c) => c.x + c.w <= edvCell.x + 1).map((c) => c.str).join(' ');
@@ -2751,12 +2825,14 @@
         if (fb) {
           edv = fb.edv;
           bedarf = fb.bedarf;
+          if (fb.bedarfText) bedarfTextRaw = fb.bedarfText;
           desc = fb.description;
           source = 'regex';
           edvCell = r.cells.find((c) => c.str.indexOf(fb.edv) >= 0) || null;
         }
       }
       if (!edv || bedarf == null || !(bedarf >= 0)) continue;
+      if (!bedarfTextRaw && bedarfCell && !Number.isInteger(bedarf)) bedarfTextRaw = bedarfCell.str.trim().replace(/\s/g, '');
 
       let x0 = Infinity; let x1 = -Infinity; let yMin = Infinity; let yMax = -Infinity; let hMax = 0;
       for (const c of r.cells) {
@@ -2769,6 +2845,7 @@
       result.rows.push({
         beakEdvNr: normalizeBeakKey(edv),
         bedarfStck: bedarf,
+        bedarfText: bedarfTextRaw ? formatBomQty(bedarf, bedarfTextRaw) : null,
         description: String(desc || '').replace(/\s+/g, ' ').trim(),
         page: pageNo,
         source: source,
@@ -2806,10 +2883,11 @@
       for (const row of res.rows) {
         if (!row.beakEdvNr) continue;
         row.pageView = view.slice(0, 4);
-        const ref = { page: row.page, bbox: row.bbox, bedarfStck: row.bedarfStck, description: row.description };
+        const ref = { page: row.page, bbox: row.bbox, bedarfStck: row.bedarfStck, bedarfText: row.bedarfText, description: row.description };
         const hit = byKey.get(row.beakEdvNr);
         if (hit) {
-          hit.bedarfStck += row.bedarfStck;
+          hit.bedarfStck = bomRoundQty(hit.bedarfStck + row.bedarfStck);
+          hit.bedarfText = Number.isInteger(hit.bedarfStck) ? null : formatBomQty(hit.bedarfStck);
           hit.rows.push(ref);
           continue;
         }
@@ -2901,17 +2979,19 @@
     const rows = el.beakCheckList.querySelectorAll('.beak-check-row');
     rows.forEach((row) => {
       const key = row.dataset.beakKey || '';
-      const bedarf = parseInt(row.dataset.bedarf || '0', 10) || 0;
+      const bedarf = parseFloat(row.dataset.bedarf || '0') || 0; /* v2.17: Dezimal (0.27) */
+      const bedarfLbl = row.dataset.bedarfText || formatBomQty(bedarf);
       const placed = beakUsageQty(key);
       const cell = row.querySelector('.beak-check-bedarf');
       if (!cell) return;
-      const ok = placed === bedarf;
+      const ok = bomQtyMatches(placed, bedarf);
       cell.classList.toggle('is-ok', ok);
       cell.classList.toggle('is-bad', !ok);
-      cell.textContent = String(bedarf);
+      cell.textContent = bedarfLbl;
+      const placedLbl = formatBomQty(placed);
       cell.title = ok
-        ? ('Platziert ' + placed + ' / Bedarf ' + bedarf)
-        : ('Abweichung: ' + placed + '/' + bedarf + ' – tippen für Hinweis');
+        ? ('Platziert ' + placedLbl + ' / Bedarf ' + bedarfLbl)
+        : ('Abweichung: ' + placedLbl + '/' + bedarfLbl + ' – tippen für Hinweis');
       cell.dataset.placed = String(placed);
     });
     renderStuecklisteUnmatched(); /* v1.15: Abschnitt „Nicht in der Stückliste“ live */
@@ -2942,9 +3022,9 @@
         if (!key) return;
         total += 1;
         if (known.has(key)) return;
-        const q = (typeof a.qty === 'number' && a.qty > 0) ? Math.round(a.qty) : 1;
+        const q = (typeof a.qty === 'number' && a.qty > 0) ? normBeakQty(a.qty) : 1;
         const g = groups[key] || (groups[key] = { key, qty: 0, pages: [], first: null });
-        g.qty += q;
+        g.qty = bomRoundQty(g.qty + q);
         if (g.pages.indexOf(displayIdx) < 0) g.pages.push(displayIdx);
         if (!g.first) g.first = { pageIdx, annId: a.id }; /* real index → goToPage */
       });
@@ -2994,7 +3074,7 @@
       row.dataset.placed = String(g.qty);
       row.dataset.pages = g.pages.map((i) => i + 1).join(',');
       const pagesTxt = (g.pages.length > 1 ? 'Seiten ' : 'Seite ') + g.pages.map((i) => i + 1).join(', ');
-      row.title = g.key + ': ' + g.qty + '× platziert auf ' + pagesTxt + ' – tippen, um zur Seite zu springen';
+      row.title = g.key + ': ' + formatBomQty(g.qty) + '× platziert auf ' + pagesTxt + ' – tippen, um zur Seite zu springen';
       const desc = document.createElement('div');
       desc.className = 'beak-check-desc beak-unmatched-pages';
       desc.textContent = pagesTxt;
@@ -3003,8 +3083,8 @@
       edvEl.textContent = g.key;
       const qty = document.createElement('div');
       qty.className = 'beak-check-bedarf is-bad beak-unmatched-qty';
-      qty.textContent = g.qty + '×';
-      qty.title = 'Platziert: ' + g.qty;
+      qty.textContent = formatBomQty(g.qty) + '×';
+      qty.title = 'Platziert: ' + formatBomQty(g.qty);
       row.appendChild(desc);
       row.appendChild(edvEl);
       row.appendChild(qty);
@@ -3067,12 +3147,14 @@
     for (const part of sorted) {
       const key = part.beakEdvNr;
       const bedarf = part.bedarfStck;
+      const bedarfLbl = bomQtyLabel(part); /* v2.17: „0,270“ statt 213 */
       const placed = beakUsageQty(key);
-      const ok = placed === bedarf;
+      const ok = bomQtyMatches(placed, bedarf);
       const row = document.createElement('div');
       row.className = 'beak-check-row';
       row.dataset.beakKey = key;
       row.dataset.bedarf = String(bedarf);
+      row.dataset.bedarfText = bedarfLbl;
       row.title = 'In der PDF markieren (Seite ' + part.page + ')';
       row.addEventListener('click', () => {
         el.beakCheckList.querySelectorAll('.beak-check-row.is-active').forEach((r) => r.classList.remove('is-active'));
@@ -3089,7 +3171,7 @@
         const badge = document.createElement('span');
         badge.className = 'beak-check-multi';
         badge.textContent = rowCount + ' Zeilen';
-        badge.title = 'Bedarf summiert aus ' + rowCount + ' Zeilen: ' + part.rows.map((r) => r.bedarfStck + ' (S. ' + r.page + ')').join(' + ');
+        badge.title = 'Bedarf summiert aus ' + rowCount + ' Zeilen: ' + part.rows.map((r) => bomQtyLabel(r) + ' (S. ' + r.page + ')').join(' + ');
         desc.appendChild(badge);
         row.classList.add('is-multi');
       }
@@ -3101,16 +3183,16 @@
       const bed = document.createElement('button');
       bed.type = 'button';
       bed.className = 'beak-check-bedarf ' + (ok ? 'is-ok' : 'is-bad');
-      bed.textContent = String(bedarf);
+      bed.textContent = bedarfLbl;
       bed.title = ok
-        ? ('Platziert ' + placed + ' / Bedarf ' + bedarf)
-        : ('Abweichung: ' + placed + '/' + bedarf + ' – tippen für Hinweis');
+        ? ('Platziert ' + formatBomQty(placed) + ' / Bedarf ' + bedarfLbl)
+        : ('Abweichung: ' + formatBomQty(placed) + '/' + bedarfLbl + ' – tippen für Hinweis');
       bed.dataset.placed = String(placed);
       bed.addEventListener('click', (e) => {
         e.stopPropagation();
         const p = beakUsageQty(key);
-        if (p === bedarf) return;
-        void showHinweis(p + '/' + bedarf);
+        if (bomQtyMatches(p, bedarf)) return;
+        void showHinweis(formatBomQty(p) + '/' + bedarfLbl);
       });
 
       row.appendChild(desc);
@@ -3395,7 +3477,7 @@
       hlEl.style.width = Math.max(0.5, Math.min(100, right) - Math.max(0, left)) + '%';
       hlEl.style.top = Math.max(0, top) + '%';
       hlEl.style.height = Math.max(0.3, bottom - top) + '%';
-      hlEl.title = part.beakEdvNr + ' · Bedarf ' + (ref.bedarfStck != null ? ref.bedarfStck : part.bedarfStck) + ' Stck';
+      hlEl.title = part.beakEdvNr + ' · Bedarf ' + (ref.bedarfStck != null ? bomQtyLabel(ref) : bomQtyLabel(part)) + ' Stck';
       pgRef.wrap.appendChild(hlEl);
       if (!first) first = { pg: pgRef, hl: hlEl };
     }
@@ -3429,9 +3511,9 @@
       const placed = beakUsageQty(p.beakEdvNr);
       const refs = Array.isArray(p.rows) && p.rows.length ? p.rows : [{ page: p.page }];
       const pagesTxt = Array.from(new Set(refs.map((r) => r.page))).join(', ');
-      setBeakPdfInfo((p.description ? p.description + ' · ' : '') + 'Bedarf ' + p.bedarfStck + ' Stck' +
+      setBeakPdfInfo((p.description ? p.description + ' · ' : '') + 'Bedarf ' + bomQtyLabel(p) + ' Stck' +
         (refs.length > 1 ? (' (Summe aus ' + refs.length + ' Zeilen)') : '') +
-        ' · Platziert ' + placed + ' · Seite ' + pagesTxt);
+        ' · Platziert ' + formatBomQty(placed) + ' · Seite ' + pagesTxt);
     } else {
       setBeakPdfInfo(pdf.name || '');
     }
@@ -6478,18 +6560,18 @@
         const t = document.createElement('input');
         t.type = 'text';
         t.className = 'ann-beak-text ann-beak-input';
-        t.inputMode = 'numeric';
-        t.setAttribute('inputmode', 'numeric');
-        t.setAttribute('pattern', '[0-9]*');
+        /* v2.17: „decimal“ statt „numeric“ + ohne pattern [0-9]* → iPad/iPhone-Zifferntastatur mit Komma */
+        t.inputMode = 'decimal';
+        t.setAttribute('inputmode', 'decimal');
         t.setAttribute('enterkeyhint', 'done');
         t.autocomplete = 'off';
         t.spellcheck = false;
         t.hidden = true;
 
         function beakEditRaw() {
-          const q = (typeof a.qty === 'number' && a.qty > 0) ? Math.round(a.qty) : 1;
+          const q = (typeof a.qty === 'number' && a.qty > 0) ? normBeakQty(a.qty) : 1;
           const d = String(a.beakDigits || '').replace(/\D/g, '') || '';
-          return q > 1 ? String(q) + 'x' + d : d; /* v1.14: Menge 1 → nur Nummer */
+          return q !== 1 ? formatBeakQty(q) + 'x' + d : d; /* v1.14: Menge 1 → nur Nummer; v2.17: „0,27x1519“ */
         }
 
         function syncBeakInputWidth() {
@@ -6516,7 +6598,9 @@
           const cur = t.value || '';
           if (/[xX×]/.test(cur)) return;
           if (cur.trim() && !isBeakQtyOnlyInput(cur)) return; /* schon eine Nummer */
-          const qtyDigits = cur.replace(/\D/g, '') || '1';
+          /* v2.17: Dezimalmenge behalten („0.27“/„0,27“ → „0,27x“) */
+          const dq = /^\d{1,3}$/.test(cur.trim()) ? null : parseBeakQtyToken(cur);
+          const qtyDigits = (dq != null && dq > 0) ? formatBeakQty(dq) : (cur.replace(/\D/g, '') || '1');
           t.value = qtyDigits + 'x';
           syncBeakInputWidth();
           try {
@@ -6640,11 +6724,11 @@
 
         /* v1.14: Hinweis beim Bearbeiten – Menge ist optional */
         t.placeholder = '101.018';
-        t.setAttribute('aria-label', 'BEAK-Nr. (Menge optional, z. B. 3x 101.018)');
+        t.setAttribute('aria-label', 'BEAK-Nr. (Menge optional, z. B. 3x 101.018 oder 0,27x 1.519)');
         const hint = document.createElement('span');
         hint.className = 'ann-beak-hint';
         hint.setAttribute('aria-hidden', 'true');
-        hint.innerHTML = 'Nummer eingeben, z.&nbsp;B. <b>101.018</b><br>Menge optional: <b>3x 101.018</b> (ohne = 1)';
+        hint.innerHTML = 'Nummer eingeben, z.&nbsp;B. <b>101.018</b><br>Menge optional: <b>3x 101.018</b> (ohne = 1)<br>auch dezimal: <b>0,27x 1.519</b>';
 
         wrap.appendChild(display);
         wrap.appendChild(t);
