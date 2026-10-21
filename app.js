@@ -1698,6 +1698,9 @@
 
   const state = {
     editMode: false,
+    camQuality: 'compressed', // v2.16: 'compressed' | 'high' – nur während Live-Kamera, nicht gespeichert
+    camZoom: 1, // v2.16: Zoom der Live-Kamera (bei jedem Öffnen 1×)
+    camZoomHw: null, // v2.16: { min, max } wenn der Track Hardware-Zoom kann, sonst null (digital)
     splitTool: null, // null | 'v' | 'h'
     photoMoveMode: false,
     photoRotateMode: false,
@@ -1975,6 +1978,328 @@
     return Math.min(hi, Math.max(lo, v));
   }
 
+  /* ==== v2.16: Kreuzung umklappen (T-Kreuzung im Split-Baum) ====
+     T-Kreuzung: Trennlinie von P (Richtung d) und eine Trennlinie eines direkten Kind-
+     Teilbaums X mit senkrechter Richtung d', die bis an P's Linie reicht. Das sind alle
+     Grenzen der d'-Kette von X (X und verschachtelte d'-Splits darin, flach betrachtet).
+     Umklappen = Baumrotation ohne Zellen zu verschmelzen (Fotos bleiben in ihren Zellen):
+       P = d(Y, X), X-Kette [S1..Sk], Grenze t bei s
+       → d'(s)[ d(Y', S1..St), St+1..Sk ]   (P's Linie unterhalb/rechts von s verschwindet)
+       oder d'(s)[ S1..St, d(Y', St+1..Sk) ] (oberhalb/links verschwindet).
+     Es verschwindet das kürzere Linienstück (bei Gleichstand das hintere); beim erneuten
+     Tippen derselben Kreuzung wird – solange bekannt – genau zurückgeklappt.
+     Verschobene Teilbäume behalten ihre absoluten Trennlinien, soweit sie in den neuen
+     Bereich passen (sonst proportional gestaucht). Ein Undo-Schritt. */
+  const splitFlipHints = new Map(); /* outerSplitId → { leafIds:Set } (Sitzung) */
+  /* global (nicht pro Button): nach renderAll liegt ein NEUER Button an derselben Stelle –
+     der nachlaufende click darf dort nicht gleich zurückklappen */
+  let splitFlipLastAt = 0;
+  function splitEffRatio(n) {
+    return clamp(typeof n.ratio === 'number' && isFinite(n.ratio) ? n.ratio : 0.5, 0.15, 0.85);
+  }
+  function splitChildRects(node, r) {
+    const p = splitEffRatio(node);
+    if (node.dir === 'v') {
+      const x = r.x0 + p * (r.x1 - r.x0);
+      return [{ x0: r.x0, x1: x, y0: r.y0, y1: r.y1 }, { x0: x, x1: r.x1, y0: r.y0, y1: r.y1 }];
+    }
+    const y = r.y0 + p * (r.y1 - r.y0);
+    return [{ x0: r.x0, x1: r.x1, y0: r.y0, y1: y }, { x0: r.x0, x1: r.x1, y0: y, y1: r.y1 }];
+  }
+  function collectSplitRects(node, r, map) {
+    if (!node) return map;
+    map.set(node, r);
+    if (node.type === 'split') {
+      const kids = splitChildRects(node, r);
+      collectSplitRects(node.a, kids[0], map);
+      collectSplitRects(node.b, kids[1], map);
+    }
+    return map;
+  }
+  function flattenSplitChain(node, dir, out) {
+    if (node && node.type === 'split' && node.dir === dir) {
+      flattenSplitChain(node.a, dir, out);
+      flattenSplitChain(node.b, dir, out);
+    } else out.push(node);
+    return out;
+  }
+  /** Split-IDs der Kettengrenzen in Reihenfolge (Grenze t ↔ Trennlinie dieses Splits). */
+  function splitChainBoundaryIds(node, dir) {
+    const ids = [];
+    (function walk(n) {
+      if (n && n.type === 'split' && n.dir === dir) {
+        walk(n.a);
+        ids.push(n.id);
+        walk(n.b);
+      }
+    })(node);
+    return ids;
+  }
+  /* v2.16: Symbole nur zur ausgewählten Trennlinie zeigen – gleiche Auswahl wie das ✕
+     (.split-handle.selected). Ein MutationObserver auf der Seitenbahn gleicht nach jeder
+     Auswahländerung ab (auch bei Pfaden, die nur Klassen umschalten statt neu zu rendern). */
+  function updateSplitFlipVisibility() {
+    if (!el.pageTrack) return;
+    const sel = new Set();
+    if (state.editMode) {
+      el.pageTrack.querySelectorAll('.split-handle.selected').forEach((h) => {
+        const w = h.parentElement;
+        if (w && w.dataset && w.dataset.splitId) sel.add(w.dataset.splitId);
+      });
+    }
+    const shown = [];
+    el.pageTrack.querySelectorAll('.split-flip-btn').forEach((b) => {
+      const ids = String(b.dataset.splitIds || '').split(' ');
+      const on = ids.some((id) => id && sel.has(id));
+      b.classList.toggle('is-shown', on);
+      if (on) shown.push(b);
+    });
+    /* Liegt eine Kreuzung genau unter dem ✕ (Mitte der Linie), das ✕ entlang der Linie
+       ein Stück verschieben, damit beide antippbar bleiben. */
+    el.pageTrack.querySelectorAll('.split-handle .split-delete').forEach((x) => {
+      x.style.removeProperty('--split-del-shift');
+      const h = x.parentElement;
+      if (!h || !h.classList.contains('selected') || !shown.length) return;
+      const vertical = h.classList.contains('dir-v');
+      const hr = h.getBoundingClientRect();
+      const cx = hr.left + hr.width / 2;
+      const cy = hr.top + hr.height / 2;
+      const len = vertical ? hr.height : hr.width;
+      const centers = shown.map((b) => {
+        const r = b.getBoundingClientRect();
+        return [r.left + r.width / 2, r.top + r.height / 2];
+      });
+      for (const d of [0, 42, -42, 84, -84]) {
+        if (Math.abs(d) > len / 2 - 16) continue;
+        const px = vertical ? cx : cx + d;
+        const py = vertical ? cy + d : cy;
+        if (centers.every(([fx, fy]) => Math.hypot(fx - px, fy - py) >= 32)) {
+          if (d) x.style.setProperty('--split-del-shift', d + 'px');
+          return;
+        }
+      }
+    });
+  }
+  let splitFlipVisRaf = 0;
+  function scheduleSplitFlipVisibility() {
+    if (splitFlipVisRaf) return;
+    splitFlipVisRaf = requestAnimationFrame(() => { splitFlipVisRaf = 0; updateSplitFlipVisibility(); });
+  }
+  /** Gültige T-Kreuzungen einer Seite: [{ pId, side, t, x, y }] (x/y = 0..1 der Layoutfläche). */
+  function findSplitFlipJunctions(root) {
+    const out = [];
+    if (!root || root.type !== 'split') return out;
+    const rects = collectSplitRects(root, { x0: 0, x1: 1, y0: 0, y1: 1 }, new Map());
+    const EPS = 0.006;
+    rects.forEach((pr, P) => {
+      if (!P || P.type !== 'split') return;
+      const perBoundaries = {};
+      ['a', 'b'].forEach((side) => {
+        const X = P[side];
+        perBoundaries[side] = [];
+        if (!X || X.type !== 'split' || X.dir === P.dir) return;
+        const segs = flattenSplitChain(X, X.dir, []);
+        const stems = splitChainBoundaryIds(X, X.dir);
+        for (let t = 0; t < segs.length - 1; t++) {
+          const sr = rects.get(segs[t]);
+          if (!sr) continue;
+          perBoundaries[side].push({ t, pos: X.dir === 'h' ? sr.y1 : sr.x1, stemId: stems[t] || '' });
+        }
+      });
+      ['a', 'b'].forEach((side) => {
+        const other = perBoundaries[side === 'a' ? 'b' : 'a'];
+        const X = P[side];
+        perBoundaries[side].forEach((bd) => {
+          /* „+“-Kreuzung (Gegenseite hat dieselbe Linie) → kein T, kein Symbol */
+          if (other.some((o) => Math.abs(o.pos - bd.pos) < EPS)) return;
+          const xr = rects.get(X);
+          let x, y;
+          if (P.dir === 'v') { x = side === 'a' ? xr.x1 : xr.x0; y = bd.pos; }
+          else { y = side === 'a' ? xr.y1 : xr.y0; x = bd.pos; }
+          out.push({ pId: P.id, stemId: bd.stemId, side, t: bd.t, x, y });
+        });
+      });
+    });
+    return out;
+  }
+  function rescaleSplitSubtree(node, o, n) {
+    if (!node || node.type !== 'split' || !o || !n) return;
+    const k0 = node.dir === 'v' ? 'x0' : 'y0';
+    const k1 = node.dir === 'v' ? 'x1' : 'y1';
+    const oldKids = splitChildRects(node, o);
+    const p = splitEffRatio(node);
+    const pos = o[k0] + p * (o[k1] - o[k0]);
+    const nlen = n[k1] - n[k0];
+    if (nlen > 0) {
+      const cand = (pos - n[k0]) / nlen;
+      if (cand >= 0.15 && cand <= 0.85 && Math.abs(cand - p) > 1e-6) node.ratio = cand;
+    }
+    const newKids = splitChildRects(node, n);
+    rescaleSplitSubtree(node.a, oldKids[0], newKids[0]);
+    rescaleSplitSubtree(node.b, oldKids[1], newKids[1]);
+  }
+  function replaceSplitNodeRef(root, target, repl) {
+    if (root === target) return repl;
+    (function walk(n) {
+      if (!n || n.type !== 'split') return;
+      if (n.a === target) { n.a = repl; return; }
+      if (n.b === target) { n.b = repl; return; }
+      walk(n.a); walk(n.b);
+    })(root);
+    return root;
+  }
+  function flipSplitJunction(pId, side, t) {
+    if (!state.editMode) return false;
+    const page = currentPage();
+    if (!page || isFixedPage(page) || !page.root || page.root.type !== 'split') return false;
+    const P = findSplit(page.root, pId);
+    if (!P || (side !== 'a' && side !== 'b')) return false;
+    const X = P[side];
+    const Y = P[side === 'a' ? 'b' : 'a'];
+    if (!X || X.type !== 'split' || X.dir === P.dir || !Y) return false;
+    const rects = collectSplitRects(page.root, { x0: 0, x1: 1, y0: 0, y1: 1 }, new Map());
+    const pr = rects.get(P);
+    const dP = X.dir;
+    const segs = flattenSplitChain(X, dP, []);
+    if (!(t >= 0 && t < segs.length - 1)) return false;
+    let originalJson = '';
+    try { originalJson = JSON.stringify(P); } catch (_) {}
+    const k0 = dP === 'h' ? 'y0' : 'x0';
+    const k1 = dP === 'h' ? 'y1' : 'x1';
+    const bpos = rects.get(segs[t])[k1];
+    const plen = pr[k1] - pr[k0];
+    if (!(plen > 0)) return false;
+    const sRel = (bpos - pr[k0]) / plen;
+    const before = segs.slice(0, t + 1);
+    const after = segs.slice(t + 1);
+    /* Exakt zurückklappen: Knoten seit dem letzten Umklappen unverändert und dieselbe
+       Kreuzung getippt → Original-Teilbaum wiederherstellen (gleiche Struktur/Verhältnisse). */
+    const prevHint = splitFlipHints.get(P.id);
+    const isYGroup = (list) => {
+      if (!prevHint || !prevHint.leafIds) return false;
+      const ls = [];
+      list.forEach((c) => leavesOf(c, ls));
+      return ls.length === prevHint.leafIds.size && ls.every((l) => prevHint.leafIds.has(l.id));
+    };
+    if (prevHint && prevHint.original && prevHint.sig) {
+      let sigNow = '';
+      try { sigNow = JSON.stringify(P); } catch (_) {}
+      if (sigNow && sigNow === prevHint.sig && side === prevHint.innerSide && (isYGroup(before) || isYGroup(after))) {
+        const restored = JSON.parse(JSON.stringify(prevHint.original));
+        stopLiveCamera();
+        page.root = replaceSplitNodeRef(page.root, P, restored);
+        state.selectedSplitId = null;
+        try { queueChangeLogLabel('Kreuzung umgeklappt'); } catch (_) {}
+        renderAll();
+        try { if (typeof historyCommit === 'function') historyCommit(); } catch (_) {}
+        return true;
+      }
+    }
+    /* Welches Linienstück von P verschwindet? */
+    let removeAfter;
+    const hint = splitFlipHints.get(P.id);
+    if (hint && hint.leafIds) {
+      const inY = (list) => {
+        const ls = [];
+        list.forEach((c) => leavesOf(c, ls));
+        return ls.length > 0 && ls.every((l) => hint.leafIds.has(l.id));
+      };
+      if (inY(before)) removeAfter = false;
+      else if (inY(after)) removeAfter = true;
+    }
+    if (removeAfter === undefined) {
+      const lenBefore = sRel;
+      const lenAfter = 1 - sRel;
+      removeAfter = Math.abs(lenBefore - lenAfter) < 0.02 ? true : lenAfter < lenBefore;
+    }
+    const extent = (c) => { const r = rects.get(c); return r ? (r[k1] - r[k0]) : 0; };
+    const buildChain = (list) => {
+      if (list.length === 1) return list[0];
+      const total = list.reduce((sum, c) => sum + extent(c), 0);
+      const ratio = total > 0 ? extent(list[0]) / total : 0.5;
+      return { type: 'split', id: uid('s'), dir: dP, ratio: clamp(ratio, 0.05, 0.95), a: list[0], b: buildChain(list.slice(1)) };
+    };
+    const joinChain = buildChain(removeAfter ? before : after);
+    const restChain = buildChain(removeAfter ? after : before);
+    const inner = {
+      type: 'split', id: uid('s'), dir: P.dir, ratio: P.ratio,
+      a: side === 'a' ? joinChain : Y,
+      b: side === 'a' ? Y : joinChain,
+    };
+    const outer = {
+      type: 'split', id: uid('s'), dir: dP, ratio: clamp(sRel, 0.05, 0.95),
+      a: removeAfter ? inner : restChain,
+      b: removeAfter ? restChain : inner,
+    };
+    const newRects = collectSplitRects(outer, pr, new Map());
+    [Y].concat(segs).forEach((c) => rescaleSplitSubtree(c, rects.get(c), newRects.get(c)));
+    stopLiveCamera();
+    page.root = replaceSplitNodeRef(page.root, P, outer);
+    let outerSig = '';
+    try { outerSig = JSON.stringify(outer); } catch (_) {}
+    splitFlipHints.set(outer.id, {
+      leafIds: new Set(leavesOf(Y).map((l) => l.id)),
+      original: originalJson ? JSON.parse(originalJson) : null,
+      sig: outerSig,
+      innerSide: removeAfter ? 'a' : 'b',
+    });
+    /* Speicher klein halten (Hinweise enthalten Foto-Daten-URLs) */
+    while (splitFlipHints.size > 8) splitFlipHints.delete(splitFlipHints.keys().next().value);
+    state.selectedSplitId = null;
+    try { queueChangeLogLabel('Kreuzung umgeklappt'); } catch (_) {}
+    renderAll();
+    try { if (typeof historyCommit === 'function') historyCommit(); } catch (_) {}
+    return true;
+  }
+  /** Magenta-Symbole an gültigen T-Kreuzungen (nur Editor, Layout-/Varianten-Seiten). */
+  function appendSplitFlipLayer(container, page) {
+    if (!container || !page || !state.editMode || isFixedPage(page)) return;
+    const juncs = findSplitFlipJunctions(page.root);
+    if (!juncs.length) return;
+    const layer = document.createElement('div');
+    layer.className = 'split-flip-layer';
+    juncs.forEach((j) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'split-flip-btn';
+      b.title = 'Kreuzung umklappen';
+      b.setAttribute('aria-label', 'Kreuzung umklappen');
+      b.dataset.splitIds = j.pId + ' ' + (j.stemId || '');
+      b.style.left = (j.x * 100) + '%';
+      b.style.top = (j.y * 100) + '%';
+      b.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 10a6.8 6.8 0 0 1 12-3.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18.4 3.6v3.6h-3.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M18.5 14a6.8 6.8 0 0 1-12 3.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M5.6 20.4v-3.6h3.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      /* Kein Seiten-Wischen / Divider-Ziehen; Auslösen per pointerup (iOS-robust, kein
+         click nötig), click nur als Tastatur-/Fallback-Pfad (dedupliziert). */
+      let down = null;
+      const fire = () => {
+        if (performance.now() - splitFlipLastAt < 700) return;
+        splitFlipLastAt = performance.now();
+        flipSplitJunction(j.pId, j.side, j.t);
+      };
+      b.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        if (e.cancelable) e.preventDefault();
+        down = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      });
+      b.addEventListener('pointerup', (e) => {
+        e.stopPropagation();
+        const d = down;
+        down = null;
+        if (!d || d.id !== e.pointerId) return;
+        if (Math.hypot(e.clientX - d.x, e.clientY - d.y) >= 12) return;
+        fire();
+      });
+      b.addEventListener('pointercancel', () => { down = null; });
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        fire();
+      });
+      layer.appendChild(b);
+    });
+    container.appendChild(layer);
+    scheduleSplitFlipVisibility();
+  }
+
   function formatBeakNr(digits) {
     const d = String(digits || '').replace(/\D/g, '');
     if (d.length === 4) return d.charAt(0) + '.' + d.slice(1);
@@ -2082,7 +2407,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.15';
+  const APP_VERSION = '2.16';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -3325,6 +3650,7 @@
     }
     state.editMode = !!on;
     el.app.classList.toggle('edit-mode', state.editMode);
+    try { syncEditorChromeLayout(state.editMode); } catch (err) { console.warn('Editor-Leiste', err); }
     /* Editor: always visible. Leaving editor → show then start viewer idle timer. */
     el.app.classList.remove('chrome-hidden');
     if (state.editMode) clearChromeIdleTimer();
@@ -3352,6 +3678,56 @@
     scheduleAnnColorBar();
     scheduleViewerChromeCompact();
     scheduleEditTopbarLayout();
+  }
+
+  /* v2.16: Editor-Layout der Werkzeuge.
+     Oben (Editor): ☰, PDF, Rückgängig, Wiederholen, + Fehler, + Button, + Info, BEAK-Nr. |
+     Seite löschen, Alle Seiten, Neue Seite, Fertig. Alles andere wandert in die senkrechte Leiste links (#editSidebar).
+     Die Buttons werden im DOM verschoben (Listener, IDs, aktive Zustände bleiben) und beim
+     Verlassen des Editors exakt an ihren Platz zurückgelegt → Viewer-Topbar unverändert. */
+  let editChromeSlots = null;
+  function editChromeItems() {
+    const byId = (id) => document.getElementById(id);
+    const parentOf = (id) => { const n = byId(id); return n ? n.parentElement : null; };
+    const groupOf = (id) => { const p = parentOf(id); return p && p.classList.contains('tool-dual') ? p : null; };
+    return {
+      /* Korrektur v2.16: ☰, PDF, Rückgängig/Wiederholen bleiben links in der Topbar */
+      sidebar: [
+        groupOf('toolSplitV'),
+        groupOf('toolText'),
+        groupOf('toolRect'),
+        byId('toolHighlight'),
+        groupOf('photoMoveBtn'),
+        byId('fullscreenBtn'),
+      ].filter(Boolean),
+      beak: byId('toolBeakNr'),
+      beakAfter: byId('toolInfo'),
+    };
+  }
+  function syncEditorChromeLayout(on) {
+    const side = document.getElementById('editSidebar');
+    if (!side) return;
+    const items = editChromeItems();
+    if (!editChromeSlots) {
+      editChromeSlots = new Map();
+      items.sidebar.concat(items.beak ? [items.beak] : []).forEach((n) => {
+        const slot = document.createComment('v2.16 slot ' + (n.id || n.getAttribute('aria-label') || ''));
+        n.parentNode.insertBefore(slot, n);
+        editChromeSlots.set(n, slot);
+      });
+    }
+    if (on) {
+      items.sidebar.forEach((n) => side.appendChild(n));
+      if (items.beak && items.beakAfter && items.beakAfter.parentNode) {
+        items.beakAfter.parentNode.insertBefore(items.beak, items.beakAfter.nextSibling);
+      }
+      document.documentElement.classList.add('edit-sidebar-on');
+    } else {
+      editChromeSlots.forEach((slot, n) => {
+        if (slot.parentNode) slot.parentNode.insertBefore(n, slot.nextSibling);
+      });
+      document.documentElement.classList.remove('edit-sidebar-on');
+    }
   }
 
   /* v1.88: Chrome-Position-Toggle entfernt — Topbar bleibt oben. */
@@ -4105,6 +4481,15 @@
       closeInfoPopup();
     }
     state.selectedSplitId = null;
+    /* v2.16: Trennlinien-Auswahl (✕ + Kreuzungs-Symbole) auch optisch verwerfen */
+    if (index !== prevIndex && el.pageTrack) {
+      el.pageTrack.querySelectorAll('.split-handle.selected').forEach((h) => h.classList.remove('selected'));
+      /* v2.16: Feld der verlassenen Seite nicht fokussiert lassen (Wischen über Index-/Fehlerfelder) */
+      const ae = document.activeElement;
+      if (ae && ae !== document.body && el.pageTrack.contains(ae) && typeof ae.blur === 'function') {
+        try { ae.blur(); } catch (_) {}
+      }
+    }
     if (index !== prevIndex && !state.editMode) {
       hideViewerChrome();
     }
@@ -4183,8 +4568,20 @@
     if (state.photoMoveMode && (target.closest('.cell-leaf.has-photo-data') || target.closest('.ann-photo-clipboard-node.has-photo-data')) && !onCamChrome) return true;
     if (state.photoRotateMode && (target.closest('.cell-leaf.has-photo-data') || target.closest('.ann-photo-clipboard-node.has-photo-data')) && !onCamChrome) return true;
     /* Edit: Tippen/Ziehen in Index-/Fehler-Feldern – kein Seiten-Wischen */
-    if (state.editMode && target.closest('.index-page')) return true;
-    if (state.editMode && (target.closest('.fehler-page') || target.closest('.fehler-embed'))) return true;
+    /* v2.16: Index-Seite im Editor wie die Fehlerseite – nur Felder/Buttons blocken */
+    if (state.editMode && target.closest('.index-page')) {
+      const ctl = target.closest('input, textarea, select, button, [contenteditable="true"]');
+      if (ctl && !isSwipeThroughField(ctl)) return true;
+    }
+    /* v2.16: Fehlerseite (letzte Seite) im Editor – nur echte Eingabe-/Bedien-Elemente blocken.
+       Vorher blockte die ganze .fehler-page jedes Wischen → auf der letzten Seite kam man im
+       Editor nicht mehr per Wischen zurück (die Seite füllt die ganze Folie). Felder und „−“
+       stoppen ihr pointerdown ohnehin selbst. */
+    if (state.editMode && target.closest('.fehler-embed')) return true;
+    if (state.editMode && target.closest('.fehler-page')) {
+      const ctl = target.closest('input, textarea, select, button, [contenteditable="true"]');
+      if (ctl && !isSwipeThroughField(ctl)) return true;
+    }
     /* Edit: Annotation verschieben/resize; Delete/Handles immer blocken (v1.54: 44px-Hitbox).
        v1.84: Edit → .split-handle blocken (Divider ziehen); Viewer → Wischen über Trennlinie ok. */
     if (target.closest('.ann-delete') || target.closest('.handle')) return true;
@@ -4238,7 +4635,12 @@
        click laut Pointer-Events-Spec an das Capture-Element (#pageViewport) statt an
        den Button → Kamera-Tap tat gar nichts. Capture erst, wenn die Geste wirklich
        zum horizontalen Seiten-Wischen wird (onViewportPointerMove). */
-    if (!(e.target && e.target.closest && e.target.closest('.cell-kamera-wrap'))) {
+    /* v2.16: Fehler-/Index-Seite im Editor ebenso verzögert capturen (erst bei echtem
+       Horizontal-Wischen), damit Tipps auf Zeilen ihr Ziel behalten (z. B. Hinweis bei
+       leerer Fehlerzeile). */
+    if (!(e.target && e.target.closest &&
+        (e.target.closest('.cell-kamera-wrap') ||
+         (state.editMode && (e.target.closest('.fehler-page') || e.target.closest('.index-page')))))) {
       captureTrackDragPointer();
     }
 
@@ -4517,7 +4919,10 @@
         !t.closest('.split-handle') &&
         !t.closest('.cell-kamera-wrap') &&
         !t.closest('.topbar') &&
-        !t.closest('.ann-color-bar')
+        !t.closest('.ann-color-bar') &&
+        !t.closest('.ann-side-bars') &&
+        !t.closest('.index-page') &&
+        !t.closest('.fehler-page')
       ) {
         showCopyPasteCallout('paste', e.clientX, e.clientY);
       }
@@ -4817,6 +5222,159 @@
     }
   }
 
+  /* v2.16: Foto löschen (rotes ×) in der Kamera-Leiste. Löscht nie ohne Rückfrage.
+     Klasse cell-cam-seg-btn → gleiche Größe/Segment-Optik und automatisch in der
+     v2.13-iOS-Absicherung (CAM_BTN_SEL, kein frühes Pointer-Capture, 450-ms-Fallback). */
+  function makePhotoDeleteBtn(holder, holderId) {
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'cell-cam-seg-btn cell-foto-delete';
+    del.innerHTML = '<svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
+    del.setAttribute('aria-label', 'Foto löschen');
+    del.title = 'Foto löschen';
+    del.addEventListener('click', (e) => {
+      if (trackDragDidPageSwipe) return;
+      e.stopPropagation();
+      void confirmDeletePhoto(holder, holderId);
+    });
+    return del;
+  }
+
+  /* v2.16: Fotoqualität bei laufender Kamera – „Komprimiert“ (Standard, max. PHOTO_MAX_EDGE)
+     oder „Bessere Qualität“ (volle Stream-Auflösung). Wird bei jedem Kamera-Start auf
+     „Komprimiert“ zurückgesetzt (nicht gespeichert). Liegt in .cell-kamera-wrap → kein
+     Auslösen per Tipp-überall; Klasse in CAM_BTN_SEL → v2.13-iOS-Fallback. */
+  function makeCamQualityToggle() {
+    const grp = document.createElement('div');
+    grp.className = 'cell-cam-quality';
+    grp.setAttribute('role', 'group');
+    grp.setAttribute('aria-label', 'Fotoqualität');
+    [['compressed', 'Komprimiert'], ['high', 'Bessere Qualität']].forEach(([val, label]) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'cell-cam-quality-btn';
+      b.dataset.quality = val;
+      b.textContent = label;
+      const on = state.camQuality === val || (val === 'compressed' && state.camQuality !== 'high');
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.addEventListener('click', (e) => {
+        if (trackDragDidPageSwipe) return;
+        e.stopPropagation();
+        setCamQuality(val);
+      });
+      grp.appendChild(b);
+    });
+    return grp;
+  }
+  /* v2.16: Zoom bei laufender Kamera – 1× / 2× / 3× und Pinch. Hardware-Zoom über
+     track.applyConstraints({ advanced: [{ zoom }] }), wenn verfügbar; sonst digital:
+     Vorschau per CSS skaliert, captureStill schneidet die Bildmitte (1/zoom) aus. */
+  const CAM_ZOOM_STEPS = [1, 2, 3];
+  function camZoomMax() {
+    return state.camZoomHw ? Math.max(1, Math.min(state.camZoomHw.max, 10)) : 5;
+  }
+  function makeCamZoomToggle() {
+    const grp = document.createElement('div');
+    grp.className = 'cell-cam-zoom';
+    grp.setAttribute('role', 'group');
+    grp.setAttribute('aria-label', 'Zoom');
+    CAM_ZOOM_STEPS.forEach((z) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'cell-cam-zoom-btn';
+      b.dataset.zoom = String(z);
+      b.textContent = z + '×';
+      b.setAttribute('aria-label', 'Zoom ' + z + '-fach');
+      b.addEventListener('click', (e) => {
+        if (trackDragDidPageSwipe) return;
+        e.stopPropagation();
+        setCamZoom(z);
+      });
+      grp.appendChild(b);
+    });
+    syncCamZoomButtons(grp);
+    return grp;
+  }
+  function syncCamZoomButtons(scope) {
+    const z = state.camZoom || 1;
+    (scope || document).querySelectorAll('.cell-cam-zoom-btn').forEach((b) => {
+      const on = Math.abs(Number(b.dataset.zoom) - z) < 0.05;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+  function applyCamZoomToVideo(video) {
+    if (!video) return;
+    const dz = state.camZoomHw ? 1 : (state.camZoom || 1);
+    video.style.transformOrigin = '50% 50%';
+    video.style.transform = dz > 1.001 ? 'scale(' + dz.toFixed(3) + ')' : '';
+  }
+  function setCamZoom(z) {
+    if (!state.liveLeafId) return;
+    const nz = clamp(Number(z) || 1, 1, camZoomMax());
+    state.camZoom = nz;
+    if (state.camZoomHw && state.stream) {
+      const hw = state.camZoomHw;
+      try {
+        const vt = state.stream.getVideoTracks()[0];
+        const val = clamp(nz, hw.min, hw.max);
+        vt.applyConstraints({ advanced: [{ zoom: val }] }).catch(() => {
+          /* Hardware-Zoom abgelehnt → digital weiter */
+          state.camZoomHw = null;
+          applyCamZoomToVideo(state.liveVideoEl);
+        });
+      } catch (_) {
+        state.camZoomHw = null;
+      }
+    }
+    applyCamZoomToVideo(state.liveVideoEl);
+    syncCamZoomButtons();
+  }
+  function setCamQuality(val) {
+    state.camQuality = val === 'high' ? 'high' : 'compressed';
+    document.querySelectorAll('.cell-cam-quality-btn').forEach((b) => {
+      const on = b.dataset.quality === state.camQuality;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+
+  let photoDeleteConfirmOpen = false;
+  async function confirmDeletePhoto(holder, holderId) {
+    if (!state.editMode || photoDeleteConfirmOpen) return;
+    if (state.liveLeafId === holderId) return;
+    photoDeleteConfirmOpen = true;
+    let ok = false;
+    try {
+      ok = await showConfirm('Foto löschen?', { okLabel: 'Löschen', cancelLabel: 'Abbrechen' });
+    } finally {
+      photoDeleteConfirmOpen = false;
+    }
+    if (!ok) return;
+    deletePhotoFromHolder(holder, holderId);
+  }
+
+  /** Genau das angezeigte Foto entfernen (gerendertes Objekt aus state.doc; Varianten-sicher).
+   *  Fallback: setPhoto(id, null) – gleiche Suchreihenfolge wie beim Setzen. */
+  function deletePhotoFromHolder(holder, holderId) {
+    let inDoc = false;
+    const pages = (state.doc && state.doc.pages) || [];
+    for (const page of pages) {
+      if (!page) continue;
+      if (page.root && findLeaf(page.root, holderId) === holder) { inDoc = true; break; }
+      if (Array.isArray(page.annotations) && page.annotations.indexOf(holder) >= 0) { inDoc = true; break; }
+    }
+    if (state.liveLeafId === holderId) stopLiveCamera();
+    if (inDoc && holder) {
+      holder.photo = null;
+      renderAll();
+    } else {
+      setPhoto(holderId, null);
+    }
+    try { flash('Foto gelöscht', 1600); } catch (_) {}
+  }
+
   function renderCell(cell, opts) {
     opts = opts || {};
     const onVarianten = !!opts.varianten;
@@ -4852,6 +5410,7 @@
       if (state.liveLeafId === cell.id && state.stream) {
         video.srcObject = state.stream;
         state.liveVideoEl = video;
+        applyCamZoomToVideo(video);
         video.play().catch(() => {});
       }
 
@@ -4901,9 +5460,13 @@
 
       seg.appendChild(kam);
       seg.appendChild(fotos);
+      /* v2.16: rotes × rechts – nur mit Foto und nicht während Live-Kamera */
+      if (hasPhoto && state.liveLeafId !== cell.id) seg.appendChild(makePhotoDeleteBtn(cell, cell.id));
       wrap.appendChild(seg);
 
       if (state.liveLeafId === cell.id) {
+        wrap.appendChild(makeCamZoomToggle());
+        wrap.appendChild(makeCamQualityToggle());
         const cancel = document.createElement('button');
         cancel.type = 'button';
         cancel.className = 'btn sm cell-cam-cancel';
@@ -5174,7 +5737,19 @@
     const a = page.annotations.find((x) => x.id === state.selectedId);
     return a && annColorTypeOf(a.type) ? a : null;
   }
+  /* v2.16: beide Leisten stecken in EINER schwebenden Spalte (#annSideBars) */
   function updateAnnColorBar() {
+    updateAnnColorBarInner();
+    const wrap = document.getElementById('annSideBars');
+    if (!wrap) return;
+    const cHidden = !el.annColorBar || el.annColorBar.hidden;
+    const aHidden = !el.annArrowBar || el.annArrowBar.hidden;
+    wrap.hidden = cHidden && aHidden;
+    wrap.classList.toggle('has-colors', !cHidden);
+    wrap.classList.toggle('has-options', !aHidden);
+    if (!wrap.hidden) positionAnnSideBar(wrap, 0);
+  }
+  function updateAnnColorBarInner() {
     updateAnnArrowBar();
     const bar = el.annColorBar;
     if (!bar) return;
@@ -5210,19 +5785,31 @@
         dot.style.setProperty('--sw', solid === 'transparent' ? '#000' : solid);
       }
     });
-    // Position: rechts bündig an „Fertig“ — darunter (Leiste oben) bzw. darüber (Leiste unten)
-    const anchor = el.fertigBtn && el.fertigBtn.offsetParent ? el.fertigBtn : null;
-    if (anchor) {
-      const r = anchor.getBoundingClientRect();
-      bar.style.right = Math.max(4, Math.round(window.innerWidth - r.right)) + 'px';
-      if (isChromeBarBottom()) {
-        bar.style.bottom = Math.round(window.innerHeight - r.top + 8) + 'px';
-        bar.style.top = 'auto';
-      } else {
-        bar.style.top = Math.round(r.bottom + 8) + 'px';
-        bar.style.bottom = 'auto';
-      }
+  }
+  /* v2.16: rechte Leisten (Farbe / Pfeilart) wie die schwebende linke Werkzeugleiste:
+     gleicher Abstand unter der Topbar, gespiegelt am rechten Rand (4 px), max. Höhe bis
+     unten, Rest per CSS (Hintergrund, Rundung, Innenabstand, Scrollen). */
+  const ANN_SIDE_BAR_W = 48;
+  const ANN_SIDE_BAR_GAP = 6;
+  function annSideBarTop() {
+    const sb = document.getElementById('editSidebar');
+    if (sb && sb.offsetParent && sb.getBoundingClientRect().height > 0) {
+      return Math.round(sb.getBoundingClientRect().top);
     }
+    const tb = el.app && el.app.querySelector('.topbar');
+    return tb ? Math.round(tb.getBoundingClientRect().bottom + 4) : 54;
+  }
+  function positionAnnSideBar(bar, slot) {
+    let inset = 0;
+    try {
+      inset = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sai-right')) || 0;
+    } catch (_) {}
+    const right = Math.max(4, inset) + slot * (ANN_SIDE_BAR_W + ANN_SIDE_BAR_GAP);
+    const top = annSideBarTop();
+    bar.style.right = right + 'px';
+    bar.style.top = top + 'px';
+    bar.style.bottom = 'auto';
+    bar.style.maxHeight = Math.max(80, window.innerHeight - top - 6) + 'px';
   }
   /* v1.13: zweite senkrechte Leiste „Pfeilart“ links neben der Farbleiste */
   function selectedArrowAnnotation() {
@@ -5243,19 +5830,6 @@
       b.classList.toggle('active', on);
       b.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
-    const anchor = el.fertigBtn && el.fertigBtn.offsetParent ? el.fertigBtn : null;
-    if (anchor) {
-      const r = anchor.getBoundingClientRect();
-      // links neben der Farbleiste (34 px + 6 px Abstand)
-      bar.style.right = Math.max(4, Math.round(window.innerWidth - r.right)) + 40 + 'px';
-      if (isChromeBarBottom()) {
-        bar.style.bottom = Math.round(window.innerHeight - r.top + 8) + 'px';
-        bar.style.top = 'auto';
-      } else {
-        bar.style.top = Math.round(r.bottom + 8) + 'px';
-        bar.style.bottom = 'auto';
-      }
-    }
   }
   function onAnnArrowKind(kind) {
     if (!ARROW_KINDS.includes(kind)) return;
@@ -5534,6 +6108,7 @@
         if (state.liveLeafId === a.id && state.stream) {
           video.srcObject = state.stream;
           state.liveVideoEl = video;
+          applyCamZoomToVideo(video);
           video.play().catch(() => {});
         }
         const wrap = document.createElement('div');
@@ -5573,8 +6148,12 @@
         });
         seg.appendChild(kam);
         seg.appendChild(fotos);
+        /* v2.16: rotes × auch im Fotozwischenspeicher (gleiche Kamera-Leiste) */
+        if (hasPhoto && state.liveLeafId !== a.id) seg.appendChild(makePhotoDeleteBtn(a, a.id));
         wrap.appendChild(seg);
         if (state.liveLeafId === a.id) {
+          wrap.appendChild(makeCamZoomToggle());
+          wrap.appendChild(makeCamQualityToggle());
           const cancel = document.createElement('button');
           cancel.type = 'button';
           cancel.className = 'btn sm cell-cam-cancel';
@@ -6134,6 +6713,20 @@
     }
   }
 
+  /* v2.16: Felder auf Index- und Fehlerseite füllen die Zeilen fast ganz aus. Ein NICHT
+     fokussiertes Feld lässt die Geste daher zum Seiten-Wischen durch (Achsen-Sperre in
+     onViewportPointerMove: erst klar horizontal → Seite; kurzer Tipp fokussiert das Feld wie
+     bisher, Pointer-Capture erst beim echten Wischen). Im fokussierten Feld (Tippen, Text
+     markieren) bleibt die Geste beim Feld. */
+  function isSwipeThroughField(node) {
+    return !!(node && node !== document.activeElement &&
+      (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA'));
+  }
+  function stopPointerUnlessSwipeField(e, input) {
+    if (state.editMode && isSwipeThroughField(input)) return;
+    e.stopPropagation();
+  }
+
   function renderIndexRow(page, row, rowIndex) {
     const rowEl = document.createElement('div');
     rowEl.className = 'index-row';
@@ -6150,7 +6743,7 @@
       textInput.className = 'index-text';
       textInput.value = row.text || '';
       textInput.placeholder = 'Arbeitsschritt…';
-      textInput.addEventListener('pointerdown', (e) => e.stopPropagation());
+      textInput.addEventListener('pointerdown', (e) => stopPointerUnlessSwipeField(e, textInput));
       textInput.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
       textInput.addEventListener('input', () => {
         row.text = textInput.value;
@@ -6166,7 +6759,7 @@
       targetInput.step = '1';
       targetInput.value = row.targetPage > 0 ? String(row.targetPage) : '';
       targetInput.title = 'Zielseite (Nummer wie in der Anzeige, z. B. 36 / N)';
-      targetInput.addEventListener('pointerdown', (e) => e.stopPropagation());
+      targetInput.addEventListener('pointerdown', (e) => stopPointerUnlessSwipeField(e, targetInput));
       targetInput.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
       targetInput.addEventListener('input', () => {
         const n = parseInt(targetInput.value, 10);
@@ -6215,7 +6808,7 @@
       titleInput.className = 'index-header-title';
       titleInput.value = titleVal;
       titleInput.setAttribute('aria-label', 'Seitentitel');
-      titleInput.addEventListener('pointerdown', (e) => e.stopPropagation());
+      titleInput.addEventListener('pointerdown', (e) => stopPointerUnlessSwipeField(e, titleInput));
       titleInput.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
       titleInput.addEventListener('input', () => {
         page.title = titleInput.value;
@@ -6250,8 +6843,13 @@
 
     const list = document.createElement('div');
     list.className = 'index-rows';
+    /* v2.16: Früher stoppte die ganze Liste im Editor jedes pointerdown (Schutz fürs Tippen in
+       den Feldern) → Index-Seite im Editor nicht wischbar. Die Felder stoppen ihr pointerdown
+       selbst; hier nur noch echte Bedien-Elemente abschirmen, freie Flächen dürfen wischen. */
     list.addEventListener('pointerdown', (e) => {
-      if (state.editMode) e.stopPropagation();
+      if (!state.editMode || !e.target || !e.target.closest) return;
+      const ctl = e.target.closest('input, textarea, select, button, [contenteditable="true"]');
+      if (ctl && !isSwipeThroughField(ctl)) e.stopPropagation();
     });
     const rows = padIndexRows(page);
     for (let i = 0; i < rows.length; i++) {
@@ -6395,7 +6993,10 @@
         input.dataset.field = f.key;
         input.value = row[f.key] || '';
         input.placeholder = f.placeholder;
-        input.addEventListener('pointerdown', (e) => e.stopPropagation());
+        input.addEventListener('pointerdown', (e) => {
+          if (isEmbed) e.stopPropagation();
+          else stopPointerUnlessSwipeField(e, input);
+        });
         input.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
         input.addEventListener('input', () => {
           row[f.key] = input.value;
@@ -6812,6 +7413,7 @@
       rootEl.style.width = '100%';
       rootEl.style.height = '100%';
       stageInner.appendChild(rootEl);
+      appendSplitFlipLayer(stageInner, page); /* v2.16 */
     } else {
       const embedRows = resolveFehlerEmbedRows(page);
       const hasEmbed = embedRows.length > 0;
@@ -6837,6 +7439,7 @@
         layer.className = 'ann-layer';
         renderAnnotationsInto(layer, page);
         layoutArea.appendChild(layer);
+        appendSplitFlipLayer(layoutArea, page); /* v2.16 */
 
         stageInner.appendChild(layoutArea);
         stageInner.appendChild(renderFehlerEmbed(page, embedRows));
@@ -6856,6 +7459,7 @@
         layer.className = 'ann-layer';
         renderAnnotationsInto(layer, page);
         stageInner.appendChild(layer);
+        appendSplitFlipLayer(stageInner, page); /* v2.16 */
       }
     }
 
@@ -7996,10 +8600,16 @@
   }
 
   async function startLiveCamera(leafId) {
+    /* v2.16: iPad hochkant gesperrt – keine Kamera unter dem Dreh-Overlay starten */
+    if (isIpadPortraitBlocked()) return;
     if (state.liveLeafId && state.liveLeafId !== leafId) {
       stopLiveCamera();
     }
     state.liveLeafId = leafId;
+    /* v2.16: bei jedem Öffnen wieder „Komprimiert“ und 1× */
+    state.camQuality = 'compressed';
+    state.camZoom = 1;
+    state.camZoomHw = null;
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       flash('Keine Kamera — Fotos wählen');
@@ -8035,6 +8645,15 @@
         return;
       }
       state.stream = stream;
+      /* v2.16: Hardware-Zoom, wenn der Track ihn anbietet (z. B. Safari iOS 17+ auf
+         manchen Geräten); sonst digitaler Zoom (Vorschau skaliert, Foto mittig beschnitten). */
+      try {
+        const vt = stream.getVideoTracks && stream.getVideoTracks()[0];
+        const caps = vt && typeof vt.getCapabilities === 'function' ? vt.getCapabilities() : null;
+        if (caps && caps.zoom && typeof caps.zoom.max === 'number' && caps.zoom.max > (caps.zoom.min || 1) + 0.01) {
+          state.camZoomHw = { min: caps.zoom.min || 1, max: caps.zoom.max };
+        }
+      } catch (_) {}
       const slide = el.pageTrack.querySelector(
         '.page-slide[data-page-index="' + state.doc.pageIndex + '"]'
       );
@@ -8047,6 +8666,7 @@
       if (video) {
         video.srcObject = stream;
         state.liveVideoEl = video;
+        applyCamZoomToVideo(video);
         await video.play().catch(() => {});
       }
       if (leafEl && !leafEl.classList.contains('live-camera')) {
@@ -8069,24 +8689,40 @@
     const video = state.liveVideoEl;
     const leafId = state.liveLeafId;
     if (!state.stream || !video || !video.videoWidth || !leafId) return;
-    // v2.15: Kamerabild auf max. 1500 px (lange Kante) begrenzen
-    const k0 = Math.min(1, PHOTO_MAX_EDGE / Math.max(video.videoWidth, video.videoHeight));
-    const w = Math.max(1, Math.round(video.videoWidth * k0));
-    const h = Math.max(1, Math.round(video.videoHeight * k0));
+    /* v2.15: Kamerabild auf max. 1500 px (lange Kante) begrenzen.
+       v2.16: „Bessere Qualität“ → volle Stream-Auflösung, JPEG 0.85. Kein späterer
+       Pfad verkleinert Kamerafotos (setPhoto speichert die Data-URL unverändert;
+       prepareImportedPhoto gilt nur für importierte Dateien/Drop/Einfügen). */
+    const highQ = state.camQuality === 'high';
+    /* v2.16: digitaler Zoom → Bildmitte (1/zoom) ausschneiden; Hardware-Zoom liefert
+       das Bild bereits gezoomt (dann voller Frame). Danach Qualitätsregel. */
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const dz = state.camZoomHw ? 1 : Math.max(1, state.camZoom || 1);
+    const sw = Math.max(1, Math.round(vw / dz));
+    const sh = Math.max(1, Math.round(vh / dz));
+    const sx = Math.max(0, Math.round((vw - sw) / 2));
+    const sy = Math.max(0, Math.round((vh - sh) / 2));
+    const k0 = highQ ? 1 : Math.min(1, PHOTO_MAX_EDGE / Math.max(sw, sh));
+    const w = Math.max(1, Math.round(sw * k0));
+    const h = Math.max(1, Math.round(sh * k0));
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(video, 0, 0, w, h);
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
     let dataUrl;
     try {
-      dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      dataUrl = canvas.toDataURL('image/jpeg', highQ ? 0.85 : 0.92);
     } catch (_) {
       dataUrl = canvas.toDataURL('image/png');
     }
+    try { canvas.width = 0; canvas.height = 0; } catch (_) {}
     stopLiveCamera();
+    state.camQuality = 'compressed';
+    state.camZoom = 1;
+    state.camZoomHw = null;
     setPhoto(leafId, dataUrl);
   }
 
@@ -8242,7 +8878,7 @@
       : [document.elementFromPoint(x, y)];
     for (const n of stack) {
       if (!n || !n.closest) continue;
-      if (n.closest('.topbar, .drawer, .ann-color-bar, .modal-backdrop, .overview-backdrop')) return null;
+      if (n.closest('.topbar, .drawer, .ann-color-bar, .ann-side-bars, .modal-backdrop, .overview-backdrop')) return null;
       const leafEl = n.closest('.cell-leaf');
       if (leafEl) {
         const slide = leafEl.closest('.page-slide');
@@ -12492,6 +13128,17 @@
     }
   });
   el.pageTrack.addEventListener('transitionend', onTrackTransitionEnd);
+  /* v2.16: Kreuzungs-Symbole folgen der Trennlinien-Auswahl (✕) */
+  try {
+    new MutationObserver((muts) => {
+      for (const m of muts) {
+        if (m.type === 'childList' || (m.target && m.target.classList && m.target.classList.contains('split-handle'))) {
+          scheduleSplitFlipVisibility();
+          return;
+        }
+      }
+    }).observe(el.pageTrack, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+  } catch (_) {}
 
   /* v2.13: iOS-Absicherung für Kamera/Fotos/Auslösen/Abbrechen.
      Auf echten iOS-Geräten (iPad + iPhone, WebKit/Safari 26+) kam der click nicht
@@ -12499,7 +13146,7 @@
      auf diesen Buttons (onViewportPointerDown). Zusätzlich: kurzer Tap (< 12 px) auf
      einen Kamera-Button ohne nachfolgenden click → Button nach 450 ms selbst auslösen;
      ein verspäteter echter click wird dann verworfen (kein Doppel-Auslösen). */
-  const CAM_BTN_SEL = '.cell-kamera-wrap .cell-cam-seg-btn, .cell-kamera-wrap .cell-cam-cancel';
+  const CAM_BTN_SEL = '.cell-kamera-wrap .cell-cam-seg-btn, .cell-kamera-wrap .cell-cam-cancel, .cell-kamera-wrap .cell-cam-quality-btn, .cell-kamera-wrap .cell-cam-zoom-btn';
   let camTap = null;
   let camClickSeenAt = 0;
   let camSuppressUntil = 0;
@@ -12541,6 +13188,98 @@
       return;
     }
     camClickSeenAt = performance.now();
+  }, true);
+  /* v2.16: Tipp irgendwo = Auslösen (nur solange die Live-Kamera läuft).
+     Eigener Tap-Detektor auf document (Capture-Phase, pointerdown/pointerup) – unabhängig
+     davon, ob iOS einen click liefert. Ausgenommen (behalten ihre Funktion): Kamera-Leiste
+     (.cell-kamera-wrap: Auslösen – eigener click + v2.13-Fallback → genau ein Foto –,
+     Fotos, Qualität, Abbrechen), Topbar/Menü, Dialoge, Lightboxen, Dreh-Overlay.
+     Kurzer Tipp (< 12 px) → captureStill(); Wischen (≥ 12 px) → Kamera beenden wie
+     bisher (vorher beendete jede Berührung außerhalb die Kamera), kein Foto.
+     pointerdown/pointerup/click des Tipps erreichen die App darunter nicht. */
+  const LIVE_TAP_EXEMPT_SEL = '.cell-kamera-wrap, .topbar, .drawer, .menu, .ios-pwa-status-strip, ' +
+    '[role="dialog"], [role="alertdialog"], .modal-backdrop, .modal, .overview-backdrop, ' +
+    '.beak-pdf-lightbox, .laufzettel-lightbox, .part-photo-lightbox, .tour-overlay, .welcome-screen, ' +
+    '.ipad-rotate-overlay, .ann-color-bar, .ann-side-bars, .copy-paste-callout';
+  let liveTap = null;
+  let liveTapClickBlockUntil = 0;
+  /* v2.16: alle Finger der aktuellen Live-Kamera-Geste (für Pinch-Zoom) */
+  const livePtrs = new Map();
+  let livePinch = null;
+  function isLiveTapExempt(t) {
+    return !t || !t.closest || !!t.closest(LIVE_TAP_EXEMPT_SEL);
+  }
+  function livePinchDist() {
+    const pts = Array.from(livePtrs.values());
+    if (pts.length < 2) return 0;
+    return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+  }
+  document.addEventListener('pointerdown', (e) => {
+    liveTapClickBlockUntil = 0; /* neue Geste – kein Rest-Block */
+    if (!state.liveLeafId) { liveTap = null; livePtrs.clear(); livePinch = null; return; }
+    if (e.button != null && e.button !== 0) return;
+    if (isLiveTapExempt(e.target)) return;
+    livePtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (liveTap && liveTap.id !== e.pointerId) {
+      liveTap.multi = true; /* zweiter Finger → kein Auslösen, sondern Pinch-Zoom */
+    } else if (!liveTap) {
+      liveTap = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), leaf: state.liveLeafId, multi: livePtrs.size > 1 };
+    }
+    if (livePtrs.size === 2) {
+      const d0 = livePinchDist();
+      livePinch = d0 > 8 ? { d0, z0: state.camZoom || 1 } : null;
+    }
+    e.stopPropagation();
+    if (e.cancelable) e.preventDefault();
+  }, true);
+  document.addEventListener('pointermove', (e) => {
+    if (!livePtrs.has(e.pointerId)) return;
+    livePtrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    e.stopPropagation();
+    if (livePinch && livePtrs.size >= 2 && state.liveLeafId) {
+      const d = livePinchDist();
+      if (d > 0) setCamZoom(livePinch.z0 * (d / livePinch.d0));
+    }
+  }, true);
+  document.addEventListener('pointercancel', (e) => {
+    livePtrs.delete(e.pointerId);
+    if (livePtrs.size < 2) livePinch = null;
+    if (liveTap && liveTap.id === e.pointerId) liveTap = null;
+  }, true);
+  document.addEventListener('pointerup', (e) => {
+    const tracked = livePtrs.delete(e.pointerId);
+    if (livePtrs.size < 2) livePinch = null;
+    const tap = liveTap;
+    if (!tap || tap.id !== e.pointerId) {
+      if (tracked) {
+        e.stopPropagation();
+        liveTapClickBlockUntil = performance.now() + 700;
+      }
+      return;
+    }
+    liveTap = null;
+    e.stopPropagation();
+    liveTapClickBlockUntil = performance.now() + 700;
+    if (tap.multi || livePtrs.size > 0) return; /* Pinch / Mehrfinger: nie auslösen */
+    if (!state.liveLeafId || state.liveLeafId !== tap.leaf) return;
+    const moved = Math.hypot(e.clientX - tap.x, e.clientY - tap.y) >= 12;
+    if (moved) {
+      stopLiveCamera();
+      renderAll();
+      return;
+    }
+    if (performance.now() - tap.t > 1500) return; /* langes Halten: nichts tun */
+    if (!state.liveVideoEl || !state.liveVideoEl.videoWidth) {
+      try { flash('Kamera startet noch …', 1400); } catch (_) {}
+      return;
+    }
+    captureStill();
+  }, true);
+  document.addEventListener('click', (e) => {
+    if (!liveTapClickBlockUntil || performance.now() > liveTapClickBlockUntil) return;
+    liveTapClickBlockUntil = 0;
+    e.stopImmediatePropagation();
+    e.preventDefault();
   }, true);
   /* v1.81: Highlight-Fotofeld per Tap (auch wenn kein Seiten-Drag startete) */
   el.pageTrack.addEventListener('click', (e) => {
@@ -13772,8 +14511,34 @@
   updateDisplayModeUI();
   fixStandaloneViewport();
   window.addEventListener('resize', fixStandaloneViewport);
-  /* v1.81: Hochformat – Seiten stapeln + Editor aus; Querformat wie bisher */
+  /* v2.16: iPad nur Querformat. data-ipad setzt das Inline-Skript in index.html
+     (/iPad/ oder iPadOS als „Macintosh“ mit maxTouchPoints > 1). iPhone/Mac/PC: false. */
+  function isIpadDevice() {
+    try {
+      if (document.documentElement.hasAttribute('data-ipad')) return true;
+      const ua = navigator.userAgent || '';
+      return /iPad/.test(ua) || (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1);
+    } catch (_) {}
+    return false;
+  }
+  /** Tatsächliche Geräte-Ausrichtung (ohne iPad-Sonderfall). */
+  function isViewportPortrait() {
+    try {
+      if (window.matchMedia && window.matchMedia('(orientation: portrait)').matches) return true;
+      if (window.matchMedia && window.matchMedia('(orientation: landscape)').matches) return false;
+    } catch (_) {}
+    return (window.innerHeight || 0) > (window.innerWidth || 0);
+  }
+  /** v2.16: iPad hochkant → Overlay (CSS) sichtbar, App gesperrt. */
+  function isIpadPortraitBlocked() {
+    return isIpadDevice() && isViewportPortrait();
+  }
+  /* v1.81: Hochformat – Seiten stapeln + Editor aus; Querformat wie bisher.
+     v2.16: am iPad nie „orient-portrait“ – dort deckt das Dreh-Overlay alles ab;
+     Editor, Seite und Track bleiben im Querformat-Zustand (kein setEditMode(false),
+     kein Portrait-Stapel/-Scroll), damit nach dem Zurückdrehen alles unverändert ist. */
   function isPortraitOrientation() {
+    if (isIpadDevice()) return false;
     try {
       if (window.matchMedia && window.matchMedia('(orientation: portrait)').matches) return true;
       if (window.matchMedia && window.matchMedia('(orientation: landscape)').matches) return false;
@@ -13818,6 +14583,47 @@
     }
   }
   updateOrientationLayout();
+
+  /* v2.16: Nebenwirkungen beim iPad-Hochformat (Overlay selbst ist reines CSS).
+     Live-Kamera sauber stoppen (kein halb offener Stream unter dem Overlay);
+     Daten, Seite und Editor-Modus bleiben unverändert. */
+  let ipadPortraitWasBlocked = false;
+  function syncIpadPortraitBlock() {
+    if (!isIpadDevice()) return;
+    const blocked = isIpadPortraitBlocked();
+    const ov = document.getElementById('ipadRotateOverlay');
+    if (ov) ov.setAttribute('aria-hidden', blocked ? 'false' : 'true');
+    if (blocked === ipadPortraitWasBlocked) return;
+    ipadPortraitWasBlocked = blocked;
+    document.documentElement.classList.toggle('ipad-portrait-blocked', blocked);
+    if (blocked) {
+      if (state.liveLeafId || state.stream) {
+        try { stopLiveCamera(); } catch (_) {}
+        try { renderAll(); } catch (_) {}
+      }
+      try { hideCopyPasteCallout(); } catch (_) {}
+    } else {
+      /* Zurück im Querformat: aktuelle Seite wieder exakt ausrichten */
+      requestAnimationFrame(() => {
+        try { applyTrackTransform(baseOffsetForIndex(state.doc.pageIndex), false); } catch (_) {}
+        try { updateNearSlides(); } catch (_) {}
+        try { scheduleEditTopbarLayout(); } catch (_) {}
+      });
+    }
+  }
+  if (isIpadDevice()) {
+    syncIpadPortraitBlock();
+    try {
+      const ipadMq = window.matchMedia('(orientation: portrait)');
+      if (ipadMq.addEventListener) ipadMq.addEventListener('change', syncIpadPortraitBlock);
+      else if (ipadMq.addListener) ipadMq.addListener(syncIpadPortraitBlock);
+    } catch (_) {}
+    window.addEventListener('resize', syncIpadPortraitBlock);
+    window.addEventListener('orientationchange', () => {
+      syncIpadPortraitBlock();
+      setTimeout(syncIpadPortraitBlock, 300);
+    });
+  }
   window.addEventListener('orientationchange', () => {
     setTimeout(() => { try { fixStandaloneViewport(); } catch (_) {} try { updateOrientationLayout(); } catch (_) {} }, 300);
   });

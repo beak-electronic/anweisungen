@@ -4790,3 +4790,375 @@ html.orient-portrait.app-h-fixed .page-viewport {
 .ann-button-target.is-hidden {
   display: none !important;
 }
+
+/* ==== v2.16: iPad nur Querformat ====
+   iOS/iPadOS ignoriert manifest „orientation“ und screen.orientation.lock.
+   data-ipad setzt ein Inline-Skript in index.html sofort beim Laden; das Overlay
+   erscheint rein per CSS (ohne JS-Verzögerung) und blockiert alle Eingaben.
+   iPhone, Mac und Windows bekommen kein data-ipad → unverändert. */
+.ipad-rotate-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: max(24px, env(safe-area-inset-top, 0px)) 24px max(24px, env(safe-area-inset-bottom, 0px));
+  background: var(--bg, #000);
+  color: var(--text, #e8ecf1);
+  text-align: center;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: contain;
+}
+@media (orientation: portrait) {
+  :root[data-ipad] .ipad-rotate-overlay { display: flex; }
+}
+.ipad-rotate-icon {
+  width: 112px;
+  height: 112px;
+  color: var(--accent, #dd007a);
+  margin-bottom: 8px;
+}
+.ipad-rotate-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text, #e8ecf1);
+}
+.ipad-rotate-text {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  color: var(--muted, #9aa3b2);
+}
+
+/* ==== v2.16: Seiten-Buttons im Editor mit Beschriftung (Stil wie .label-btn) ====
+   Gruppe Seite löschen | Alle Seiten | Neue Seite bleibt ein Segment-Block (gleiche Höhe/Kanten). */
+.tool-dual #removePageBtn.tool-dual-btn.btn.icon-btn.has-label,
+.tool-dual #overviewBtnEdit.tool-dual-btn.btn.icon-btn.has-label,
+.tool-dual #addPageBtn.tool-dual-btn.btn.icon-btn.has-label {
+  width: auto;
+  min-width: 34px;
+  max-width: none;
+  flex: 0 0 auto;
+  padding: 0 11px 0 8px !important;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+.tool-dual .tool-dual-btn.has-label .tool-icon {
+  margin: 0;
+}
+.tool-dual .tool-dual-btn.has-label .btn-label {
+  pointer-events: none;
+}
+
+/* ==== v2.16: Foto löschen – rotes × als drittes Segment rechts (Kamera | Fotos | ×) ====
+   Gleiche Größe wie die anderen Segmente; .cell-cam-seg rundet außen (overflow:hidden). */
+.cell-cam-seg-btn.cell-foto-delete {
+  flex: 0 0 48px;
+  color: #ef4444;
+}
+.cell-cam-seg-btn.cell-foto-delete .tool-icon {
+  width: 22px;
+  height: 22px;
+}
+.cell-cam-seg-btn.cell-foto-delete:hover,
+.cell-cam-seg-btn.cell-foto-delete:focus-visible {
+  background: rgba(239, 68, 68, 0.22);
+  color: #f87171;
+}
+.cell-cam-seg-btn.cell-foto-delete:active {
+  background: rgba(239, 68, 68, 0.38);
+}
+
+/* ==== v2.16: Fotoqualität bei laufender Kamera (Komprimiert | Bessere Qualität) ====
+   Segment-Optik wie .cell-cam-seg; aktiv = Akzent (#dd007a). Dunkler, deckender Grund,
+   damit die Beschriftung über dem Live-Video lesbar bleibt. */
+.cell-cam-quality {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(16, 20, 28, 0.78);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.32);
+  min-height: 36px;
+}
+.cell-cam-quality-btn {
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text, #e8ecf1);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  margin: 0;
+  padding: 0 12px;
+  min-height: 36px;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.cell-cam-quality-btn + .cell-cam-quality-btn {
+  border-left: 1px solid rgba(255, 255, 255, 0.22);
+}
+.cell-cam-quality-btn:hover,
+.cell-cam-quality-btn:focus-visible {
+  background: rgba(42, 51, 68, 0.75);
+  outline: none;
+}
+.cell-cam-quality-btn.active,
+.cell-cam-quality-btn.active:hover,
+.cell-cam-quality-btn.active:focus-visible {
+  background: var(--accent, #dd007a);
+  color: #fff;
+}
+
+/* ==== v2.16: Kreuzung umklappen – Symbol nur an gültigen T-Kreuzungen (Editor) ====
+   Rund, Akzent-Magenta, weißes Outline-Icon. Erscheint erst, wenn eine zugehörige
+   Trennlinie angetippt/ausgewählt ist (wie das ✕), und verschwindet mit der Auswahl. */
+.split-flip-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 26; /* über .ann-layer (20), damit die Kreuzung tippbar bleibt */
+  pointer-events: none;
+}
+.split-flip-btn {
+  position: absolute;
+  visibility: hidden; /* erst sichtbar, wenn die zugehörige Trennlinie ausgewählt ist */
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: var(--accent, #dd007a);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+/* größere unsichtbare Trefferfläche (~40 px) für Finger */
+.split-flip-btn::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+}
+.split-flip-btn svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  pointer-events: none;
+}
+.split-flip-btn:hover,
+.split-flip-btn:focus-visible {
+  background: #f0168f;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(221, 0, 122, 0.35), 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+.split-flip-btn:active {
+  transform: translate(-50%, -50%) scale(0.92);
+}
+.app:not(.edit-mode) .split-flip-layer { display: none; }
+.split-flip-btn:not(.is-shown) { pointer-events: none; }
+.split-flip-btn.is-shown { visibility: visible; }
+
+/* ==== v2.16: Zoom bei laufender Kamera (1× | 2× | 3×) – gleiche Optik wie Qualität ==== */
+.cell-cam-zoom {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(16, 20, 28, 0.78);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.32);
+  min-height: 36px;
+}
+.cell-cam-zoom-btn {
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text, #e8ecf1);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  margin: 0;
+  padding: 0 10px;
+  min-width: 44px;
+  min-height: 36px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.cell-cam-zoom-btn + .cell-cam-zoom-btn {
+  border-left: 1px solid rgba(255, 255, 255, 0.22);
+}
+.cell-cam-zoom-btn:hover,
+.cell-cam-zoom-btn:focus-visible {
+  background: rgba(42, 51, 68, 0.75);
+  outline: none;
+}
+.cell-cam-zoom-btn.active,
+.cell-cam-zoom-btn.active:hover,
+.cell-cam-zoom-btn.active:focus-visible {
+  background: var(--accent, #dd007a);
+  color: #fff;
+}
+
+/* ==== v2.16: Editor – senkrechte Werkzeugleiste links ====
+   Gleicher Hintergrund wie die Topbar (rgba(40,40,44,0.92), KEIN backdrop-filter – v2.04/v2.10
+   iOS-Regeln). Schwebt wie die Topbar über der Seite (Seitenlayout im Editor wie v2.15,
+   nicht verschoben). Nur die Leiste selbst fängt Eingaben ab; scrollt, wenn zu hoch. */
+:root { --edit-sidebar-w: 56px; }
+.edit-sidebar { display: none; }
+.app.edit-mode .edit-sidebar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  position: absolute;
+  z-index: 50;
+  left: max(4px, env(safe-area-inset-left, 0px));
+  top: calc(var(--edit-topbar-h, 50px) + 4px);
+  max-height: calc(100% - var(--edit-topbar-h, 50px) - 10px);
+  width: calc(var(--edit-sidebar-w) - 8px);
+  padding: 7px 0;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  scrollbar-width: none;
+  background: rgba(40, 40, 44, 0.92);
+  border-radius: 12px;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  filter: none;
+  isolation: isolate;
+}
+.app.edit-mode .edit-sidebar::-webkit-scrollbar { display: none; }
+/* Einzel-Buttons: 34×34 wie Icon-Buttons der Topbar, deckend */
+.edit-sidebar > .btn {
+  flex: 0 0 auto;
+  width: 34px;
+  min-width: 34px;
+  max-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #1a1f27;
+  color: #f0f0f0;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.edit-sidebar > .btn[hidden] { display: none !important; }
+.edit-sidebar > .btn.icon-btn.active { background: #1e3a5f; border-color: var(--accent2); color: #fff; }
+/* Segment-Gruppen senkrecht stapeln (oben/unten gerundet, gemeinsame 1px-Kante) */
+.edit-sidebar .tool-dual {
+  flex: 0 0 auto;
+  flex-direction: column;
+  height: auto;
+  min-height: 0;
+  width: 34px;
+}
+.edit-sidebar .tool-dual .tool-dual-btn.btn.icon-btn {
+  width: 34px;
+  min-width: 34px;
+  max-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  flex: 0 0 34px;
+}
+.edit-sidebar .tool-dual .tool-dual-btn + .tool-dual-btn {
+  margin-left: 0;
+  margin-top: -1px;
+}
+.edit-sidebar .tool-dual .tool-dual-btn.btn.icon-btn:first-child {
+  border-radius: 8px 8px 0 0;
+}
+.edit-sidebar .tool-dual .tool-dual-btn.btn.icon-btn:last-child {
+  border-radius: 0 0 8px 8px;
+}
+.edit-sidebar .tool-dual .tool-dual-btn.btn.icon-btn:only-child {
+  border-radius: 8px;
+}
+/* Topbar im Editor: nur noch eine schlanke Zeile */
+.app.edit-mode .topbar .top-left .tool-beak-btn { flex: 0 0 auto; }
+
+/* ==== v2.16: rechte Optionsleiste im Stil der linken Werkzeugleiste ====
+   EINE senkrechte Spalte (#annSideBars): Farben oben, darunter werkzeugspezifische Optionen
+   (Pfeilart), getrennt durch eine feine Linie. Schwebt über der Seite, gleicher Abstand unter
+   der Topbar wie links (top/right per JS), gleicher halbtransparenter dunkelgrauer Hintergrund
+   (ohne backdrop-filter), 12 px Rundung, 7 px Innenabstand, 48 px breit, 34-px-Buttons;
+   scrollt, wenn zu hoch. */
+.ann-side-bars {
+  position: fixed;
+  top: 54px;
+  right: 4px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  width: 48px;
+  box-sizing: border-box;
+  padding: 7px 0;
+  background: rgba(40, 40, 44, 0.92);
+  border-radius: 12px;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  scrollbar-width: none;
+  opacity: 1;
+  transition: opacity 180ms ease-out;
+}
+.ann-side-bars::-webkit-scrollbar { display: none; }
+.ann-side-bars[hidden] { display: none !important; }
+.app:not(.edit-mode) .ann-side-bars { display: none !important; }
+.app.chrome-hidden .ann-side-bars { opacity: 0; pointer-events: none; }
+.ann-side-bars .ann-color-bar {
+  position: static;
+  flex: 0 0 auto;
+  width: 34px;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 8px;
+}
+.ann-side-bars .ann-color-bar .btn.icon-btn.ann-color-swatch { flex: 0 0 34px; background: #1a1f27; }
+/* Trenner zwischen Farben und Werkzeug-Optionen */
+.ann-side-bars.has-colors.has-options .ann-arrow-bar {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 0;
+}
+.ann-side-bars.has-colors.has-options .ann-arrow-bar .btn.icon-btn.ann-color-swatch:first-child { border-radius: 8px 8px 0 0; }
+
+/* v2.16: ✕ weicht einer Kreuzungs-Taste auf derselben Linie aus (Verschiebung per JS) */
+.split-handle.dir-v .split-delete { transform: translate(-50%, calc(-50% + var(--split-del-shift, 0px))); }
+.split-handle.dir-h .split-delete { transform: translate(calc(-50% + var(--split-del-shift, 0px)), -50%); }
