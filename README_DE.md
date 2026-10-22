@@ -2,7 +2,14 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.17
+**Version:** 2.18
+
+## Neu in 2.18
+
+- **Datei weicht vom Stand auf dem Gerät ab – „Mehr…“:** Im Dialog „Diese Datei unterscheidet sich vom Stand auf diesem Gerät“ gibt es jetzt zwischen **Abbrechen** und **Laden** den Button **Mehr…**. Er blendet **Lokalen Stand öffnen** ein: Statt der Datei wird der zuletzt auf diesem Gerät automatisch gesicherte Stand geöffnet (Seiten, Fotos, Stückliste, Varianten). Die Datei bleibt zugeordnet – **Sichern** schreibt wie gewohnt in dieselbe Datei. Der lokale Stand wird dabei nicht durch die Datei ersetzt. **Laden** und **Abbrechen** funktionieren wie bisher.
+- **Nur der passende Stand:** Angeboten wird nur ein lokaler Stand, der zu dieser Datei gehört und kein leeres neues Projekt ist; sonst steht dort „Kein lokaler Stand dieser Datei vorhanden“. Die automatische Sicherung merkt sich dafür jetzt, zu welcher Datei sie gehört. Bei einer älteren automatischen Sicherung (vor 2.18) ist das unbekannt: Sie wird trotzdem angeboten, mit Datum, Uhrzeit und Seitenzahl und dem Hinweis „Zuordnung zur Datei unbekannt“. Vorhandene Daten im Browser-Speicher bleiben beim Update unverändert erhalten.
+- **Varianten-Stücklisten** werden jetzt auch in der automatischen Sicherung auf dem Gerät mitgesichert.
+- **Service Worker:** Cache `anweisungen-shell-v2.18` und `?v=2.18`.
 
 ## Neu in 2.17
 

@@ -5162,3 +5162,27 @@ html.orient-portrait.app-h-fixed .page-viewport {
 /* v2.16: ✕ weicht einer Kreuzungs-Taste auf derselben Linie aus (Verschiebung per JS) */
 .split-handle.dir-v .split-delete { transform: translate(-50%, calc(-50% + var(--split-del-shift, 0px))); }
 .split-handle.dir-h .split-delete { transform: translate(calc(-50% + var(--split-del-shift, 0px)), -50%); }
+
+
+/* ==== v2.18: Abweichungs-Dialog „Mehr…“ → Lokalen Stand öffnen ==== */
+.confirm-more-btn[hidden], .confirm-extra[hidden], #confirmLocal[hidden],
+.confirm-extra-info[hidden], .confirm-extra-hint[hidden], .confirm-extra-text[hidden] { display: none !important; }
+.confirm-extra {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.confirm-extra p {
+  margin: 0;
+  align-self: stretch;
+  white-space: pre-line;
+  font-size: 0.875rem;
+  line-height: 1.35;
+}
+.confirm-extra-text { color: var(--text); }
+.confirm-extra-info { color: var(--muted); }
+.confirm-extra-hint { color: var(--muted); font-style: italic; }

@@ -2435,7 +2435,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.17';
+  const APP_VERSION = '2.18';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -10805,7 +10805,21 @@
     } catch (err) {
       console.warn('Thumbs für Browser-Speicher', err);
     }
-    return { doc, stueckliste: st, thumbs: thumbs };
+    /* v2.18: Stücklisten pro Variante ebenfalls als Blob-Refs (vorher nur die aktive) */
+    const vst = {};
+    try {
+      const m = state.variantStuecklisten || {};
+      for (const vid of Object.keys(m)) {
+        const r = m[vid];
+        if (!r || !r.dataUrl) continue;
+        const key = storeKeyFor(r.dataUrl);
+        needed.set(key, r.dataUrl);
+        vst[vid] = { name: r.name || 'Stueckliste.pdf', ref: key };
+      }
+    } catch (err) {
+      console.warn('Varianten-Stücklisten für Browser-Speicher', err);
+    }
+    return { doc, stueckliste: st, thumbs: thumbs, variantStuecklisten: vst };
   }
 
   function slimMarkerDoc(rev) {
@@ -10873,6 +10887,10 @@
         stueckliste: rec.stueckliste,
         thumbs: rec.thumbs || {},
         fileName: loadedSaveFileName || null,
+        /* v2.18: Zuordnung Autosave ↔ Datei (docKeyFromFileName der geöffneten Datei; null = noch
+           keine Datei). Das Feld existiert immer ab v2.18 – ältere Autosaves haben es nicht. */
+        docKey: loadedSaveFileName ? (docKeyFromFileName(loadedSaveFileName) || null) : null,
+        variantStuecklisten: rec.variantStuecklisten || {},
       };
       const writeAll = async (mode) => {
         const vals = [];
@@ -10958,6 +10976,10 @@
       }
     }
     if (meta.stueckliste && meta.stueckliste.ref) refs.add(meta.stueckliste.ref);
+    const vstMeta = (meta.variantStuecklisten && typeof meta.variantStuecklisten === 'object') ? meta.variantStuecklisten : {};
+    for (const info of Object.values(vstMeta)) {
+      if (info && info.ref) refs.add(info.ref);
+    }
     const thumbsMeta = (meta.thumbs && typeof meta.thumbs === 'object') ? meta.thumbs : {};
     for (const info of Object.values(thumbsMeta)) {
       if (info && info.ref) refs.add(info.ref);
@@ -11009,8 +11031,17 @@
       if (!dataUrl) continue;
       thumbs[pageId] = { sig: typeof info.sig === 'string' ? info.sig : '', dataUrl: dataUrl };
     }
+    const variantSt = {};
+    for (const [vid, info] of Object.entries(vstMeta)) {
+      if (!info || !info.ref || !urls.get(info.ref)) continue;
+      variantSt[vid] = { name: info.name || 'Stueckliste.pdf', dataUrl: urls.get(info.ref), parts: null };
+    }
     store.rev = meta.rev || 0;
-    return { doc: meta.doc, stueckliste: st, thumbs: thumbs, missing, fileName: meta.fileName || null, savedAt: meta.savedAt };
+    return {
+      doc: meta.doc, stueckliste: st, variantStuecklisten: variantSt, thumbs: thumbs, missing,
+      fileName: meta.fileName || null, savedAt: meta.savedAt,
+      docKey: Object.prototype.hasOwnProperty.call(meta, 'docKey') ? (meta.docKey || null) : undefined,
+    };
   }
 
   function requestPersistentStorage() {
@@ -11319,20 +11350,248 @@
     writeDocSigMap(map);
   }
 
-  /** Returns true if caller should proceed with load/replace. */
-  async function confirmDocSignatureIfChanged(docKey, incomingSig) {
-    if (!docKey || !incomingSig) return true;
-    const prev = readDocSigMap()[docKey];
-    if (!prev || prev === incomingSig) return true;
-    try {
-      const ok = await showConfirm(
-        'Diese Datei unterscheidet sich vom Stand auf diesem Gerät.\nMöchten Sie die Datei laden und den lokalen Stand ersetzen?',
-        { okLabel: 'Laden', cancelLabel: 'Abbrechen', okPrimary: true }
-      );
-      return !!ok;
-    } catch (_) {
-      return true;
+  /* v2.18: „Mehr…“ im Abweichungs-Dialog → lokalen Stand (IndexedDB-Autosave) statt Datei öffnen.
+     Angeboten nur, wenn der Autosave zu dieser Datei gehört (meta.docKey === docKey der Datei) und
+     kein leeres neues Projekt ist. Ältere Autosaves (vor v2.18, ohne Feld docKey) werden ebenfalls
+     angeboten, aber mit Datum/Seitenzahl und dem Hinweis „Zuordnung zur Datei unbekannt“. */
+  async function idbPeekCurrentMeta() {
+    if (!idbAvailable()) return null;
+    const db = await idbOpen();
+    const meta = await idbReq(db.transaction('meta', 'readonly').objectStore('meta').get('current'));
+    return (meta && meta.doc && Array.isArray(meta.doc.pages)) ? meta : null;
+  }
+
+  /** Enthält der Autosave mehr als ein leeres neues Projekt? (Fotos, Formen, Text, Teilungen, …) */
+  function storedDocHasContent(meta) {
+    if (!meta || !meta.doc || !Array.isArray(meta.doc.pages)) return false;
+    if (meta.stueckliste && meta.stueckliste.ref) return true;
+    if (meta.variantStuecklisten && Object.keys(meta.variantStuecklisten).length) return true;
+    if (Array.isArray(meta.doc.variants) && meta.doc.variants.length) return true;
+    const txt = (v) => typeof v === 'string' && v.trim() !== '';
+    let layouts = 0;
+    let found = false;
+    const walk = (c) => {
+      if (found || !c || typeof c !== 'object') return;
+      if (c.type === 'split') { found = true; return; }
+      if (c.type === 'leaf') {
+        if (c.photo && (c.photo.ref || c.photo.src || c.photo.file)) found = true;
+        else if (txt(c.caption) || txt(c.captionShort)) found = true;
+      }
+    };
+    for (const p of meta.doc.pages) {
+      if (!p || typeof p !== 'object') continue;
+      if (p.kind === 'index') {
+        if ((p.rows || []).some((r) => r && txt(r.text))) return true;
+        continue;
+      }
+      if (p.kind === 'fehler') {
+        if ((p.rows || []).some((r) => r && (txt(r.date) || txt(r.description) || txt(r.cause) || txt(r.remedy)))) return true;
+        continue;
+      }
+      if (p.kind !== 'varianten') layouts++;
+      if (Array.isArray(p.annotations) && p.annotations.length) return true;
+      walk(p.root);
+      if (found) return true;
     }
+    return layouts > 1;
+  }
+
+  function storedDocSummary(meta) {
+    const pages = (meta && meta.doc && meta.doc.pages) || [];
+    let layouts = 0;
+    let photos = 0;
+    let title = '';
+    const walk = (c) => {
+      if (!c || typeof c !== 'object') return;
+      if (c.type === 'leaf') { if (c.photo && (c.photo.ref || c.photo.src)) photos++; return; }
+      walk(c.a); walk(c.b);
+    };
+    for (const p of pages) {
+      if (!p) continue;
+      if (p.kind === 'index') { if (!title && typeof p.title === 'string') title = p.title.trim(); continue; }
+      if (p.kind === 'fehler' || p.kind === 'varianten') continue;
+      layouts++;
+      walk(p.root);
+    }
+    let when = '';
+    const d = meta && (meta.savedAt ? new Date(meta.savedAt) : (meta.rev ? new Date(meta.rev) : null));
+    if (d && !isNaN(d.getTime())) {
+      try {
+        when = d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ', ' +
+          d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+      } catch (_) { when = d.toISOString().slice(0, 16).replace('T', ' '); }
+    }
+    const parts = [];
+    parts.push(when ? ('Lokaler Stand vom ' + when) : 'Lokaler Stand');
+    parts.push(layouts + (layouts === 1 ? ' Seite' : ' Seiten'));
+    if (photos) parts.push(photos + (photos === 1 ? ' Foto' : ' Fotos'));
+    if (title && title !== 'Arbeitsschritte') parts.push('„' + title + '“');
+    return parts.join(' · ');
+  }
+
+  /** → { offer, info, hint } für den Dialog. */
+  async function describeLocalStandFor(docKey) {
+    const none = { offer: false, info: '', hint: 'Kein lokaler Stand dieser Datei vorhanden' };
+    if (!docKey || store.blocked) return none;
+    /* Ausstehende Auto-Sicherung des gerade offenen Projekts zuerst schreiben */
+    try {
+      if (docOpen && (store.dirty || store.timer)) { store.dirty = true; await persistNow(); }
+    } catch (_) {}
+    let meta = null;
+    try { meta = await idbPeekCurrentMeta(); } catch (err) { console.warn('Lokalen Stand prüfen', err); }
+    if (!meta || !storedDocHasContent(meta)) return none;
+    const summary = storedDocSummary(meta);
+    const hasKey = Object.prototype.hasOwnProperty.call(meta, 'docKey');
+    if (hasKey) {
+      if (!meta.docKey || meta.docKey !== docKey) return none;
+      return { offer: true, info: summary, hint: '' };
+    }
+    /* Älterer Autosave (vor v2.18): keine sichere Zuordnung – trotzdem anbieten, mit Hinweis */
+    let info = summary + ' – Zuordnung zur Datei unbekannt';
+    if (meta.fileName) info += '\n(zuletzt geöffnet als „' + toBeakFilename(meta.fileName) + '“)';
+    return { offer: true, info: info, hint: '', legacy: true };
+  }
+
+  /** Abweichungs-Dialog: resolve 'load' | 'cancel' | 'local'.
+   *  Statische Buttons aus index.html (kein DOM-Neuaufbau während des Taps, iOS/WebKit);
+   *  „Mehr…“ blendet den Zusatzbereich erst im click-Handler ein (Tap ist dann abgeschlossen). */
+  function showDocChangedDialog(message, local) {
+    const moreBtn = document.getElementById('confirmMore');
+    const extra = document.getElementById('confirmExtra');
+    const extraInfo = document.getElementById('confirmExtraInfo');
+    const extraHint = document.getElementById('confirmExtraHint');
+    const localBtn = document.getElementById('confirmLocal');
+    if (!moreBtn || !extra || !localBtn) {
+      return showConfirm(message, { okLabel: 'Laden', cancelLabel: 'Abbrechen', okPrimary: true })
+        .then((ok) => (ok ? 'load' : 'cancel'));
+    }
+    return new Promise((resolve) => {
+      const okText = el.confirmOk.textContent;
+      const cancelText = el.confirmCancel.textContent;
+      el.confirmMessage.textContent = message;
+      el.confirmOk.textContent = 'Laden';
+      el.confirmCancel.textContent = 'Abbrechen';
+      el.confirmOk.classList.remove('danger');
+      el.confirmOk.classList.add('primary');
+      const lc = local || {};
+      if (extraInfo) {
+        extraInfo.textContent = lc.offer ? (lc.info || '') : '';
+        extraInfo.hidden = !lc.offer;
+      }
+      if (extraHint) {
+        extraHint.textContent = lc.hint || 'Kein lokaler Stand dieser Datei vorhanden';
+        extraHint.hidden = !!lc.offer;
+      }
+      const extraText = document.getElementById('confirmExtraText');
+      if (extraText) extraText.hidden = !lc.offer;
+      localBtn.hidden = !lc.offer;
+      localBtn.disabled = !lc.offer;
+      extra.hidden = true;
+      moreBtn.hidden = false;
+      moreBtn.setAttribute('aria-expanded', 'false');
+      let revealedAt = 0;
+      el.confirmBackdrop.hidden = false;
+      const finish = (res) => {
+        el.confirmBackdrop.hidden = true;
+        el.confirmOk.textContent = okText;
+        el.confirmCancel.textContent = cancelText;
+        el.confirmOk.classList.remove('primary');
+        el.confirmOk.classList.add('danger');
+        moreBtn.hidden = true;
+        extra.hidden = true;
+        el.confirmOk.removeEventListener('click', onOk);
+        el.confirmCancel.removeEventListener('click', onCancel);
+        el.confirmBackdrop.removeEventListener('click', onBackdrop);
+        moreBtn.removeEventListener('click', onMore);
+        localBtn.removeEventListener('click', onLocal);
+        resolve(res);
+      };
+      const onOk = () => finish('load');
+      const onCancel = () => finish('cancel');
+      const onBackdrop = (e) => { if (e.target === el.confirmBackdrop) finish('cancel'); };
+      const onMore = (e) => {
+        if (e) e.preventDefault();
+        const open = extra.hidden;
+        extra.hidden = !open;
+        moreBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) revealedAt = performance.now();
+      };
+      const onLocal = (e) => {
+        if (e) e.preventDefault();
+        if (!lc.offer || extra.hidden) return;
+        /* Kein „Durchklick“ des Mehr…-Taps auf den gerade eingeblendeten Button */
+        if (performance.now() - revealedAt < 350) return;
+        finish('local');
+      };
+      el.confirmOk.addEventListener('click', onOk);
+      el.confirmCancel.addEventListener('click', onCancel);
+      el.confirmBackdrop.addEventListener('click', onBackdrop);
+      moreBtn.addEventListener('click', onMore);
+      localBtn.addEventListener('click', onLocal);
+    });
+  }
+
+  /** Returns 'load' (proceed), 'cancel' or 'local' (v2.18: lokalen Stand öffnen). */
+  async function confirmDocSignatureIfChanged(docKey, incomingSig) {
+    if (!docKey || !incomingSig) return 'load';
+    const prev = readDocSigMap()[docKey];
+    if (!prev || prev === incomingSig) return 'load';
+    try {
+      let local = null;
+      try { local = await describeLocalStandFor(docKey); } catch (_) { local = null; }
+      return await showDocChangedDialog(
+        'Diese Datei unterscheidet sich vom Stand auf diesem Gerät.\nMöchten Sie die Datei laden und den lokalen Stand ersetzen?',
+        local
+      );
+    } catch (_) {
+      return 'load';
+    }
+  }
+
+  /** v2.18: Autosave (IndexedDB) statt der gewählten Datei öffnen – wie die frühere Wiederherstellung
+   *  beim Start. Datei-Zuordnung (Name/Handle) bleibt, damit „Sichern“ in dieselbe Datei schreibt.
+   *  Die Datei-Signatur wird NICHT übernommen (lokaler Stand ≠ Datei → Warnung bleibt sinnvoll). */
+  async function openLocalStandInstead(file, handle) {
+    let rec = null;
+    try { rec = await idbLoadCurrent(); } catch (err) { console.warn('Lokalen Stand lesen', err); }
+    if (!rec || !rec.doc || !applyLoaded(rec.doc)) {
+      flash('Lokaler Stand nicht lesbar – es wurde nichts geändert', 8000, 'error');
+      return false;
+    }
+    state.variantStuecklisten = Object.assign({}, rec.variantStuecklisten || {});
+    state.stueckliste = rec.stueckliste || null;
+    try {
+      const vlist = variantsList();
+      if (state.stueckliste && vlist.length && !Object.keys(state.variantStuecklisten).length) {
+        const vid = state.activeVariantId || vlist[0].id;
+        state.variantStuecklisten[vid] = state.stueckliste;
+      }
+      if (state.activeVariantId && state.variantStuecklisten[state.activeVariantId]) {
+        state.stueckliste = state.variantStuecklisten[state.activeVariantId];
+      }
+    } catch (_) {}
+    try {
+      hydratePersistedThumbs(rec.thumbs);
+      restampPersistedThumbSigs();
+    } catch (_) {}
+    loadedSaveFileName = toBeakFilename((file && file.name) || rec.fileName || 'Anweisungen.beak');
+    projectFileHandle = handle || null;
+    updateStuecklisteUi();
+    rebuildBeakUsage();
+    renderAll();
+    try { applyRememberedPage(); } catch (_) {}
+    enterOpenDocument({ clearDirty: false, hideChrome: true });
+    if (store.blocked) store.blocked = false;
+    /* Autosave mit neuer Zuordnung (docKey) neu schreiben – Inhalt = lokaler Stand, nicht die Datei */
+    store.dirty = true;
+    try { await persistNow(); } catch (_) {}
+    sessionDirty = true; /* gegenüber der Datei geändert → „Sichern“ nötig */
+    if (rec.missing > 0) {
+      setTimeout(() => flash(rec.missing + ' Datei(en) im Browser-Speicher nicht gefunden', 9000, 'error'), 600);
+    }
+    flash('Lokaler Stand geöffnet – noch nicht in „' + loadedSaveFileName + '“ gesichert', 5000);
+    warmupPdfPipeline();
+    return true;
   }
 
     async function applyPlanZip(file, handle) {
@@ -11373,7 +11632,12 @@
     }
     const openDocKey = docKeyFromFileName(file && file.name);
     const openSig = projectContentSignature(data, projText);
-    if (!(await confirmDocSignatureIfChanged(openDocKey, openSig))) {
+    const choice = await confirmDocSignatureIfChanged(openDocKey, openSig);
+    if (choice === 'local') {
+      await openLocalStandInstead(file, handle);
+      return;
+    }
+    if (choice !== 'load') {
       flash('Öffnen abgebrochen', 2500);
       return;
     }
@@ -11452,7 +11716,12 @@
     }
     const openDocKey = docKeyFromFileName(file && file.name);
     const openSig = projectContentSignature(data, projText);
-    if (!(await confirmDocSignatureIfChanged(openDocKey, openSig))) {
+    const choice = await confirmDocSignatureIfChanged(openDocKey, openSig);
+    if (choice === 'local') {
+      await openLocalStandInstead(file, handle);
+      return;
+    }
+    if (choice !== 'load') {
       flash('Öffnen abgebrochen', 2500);
       return;
     }

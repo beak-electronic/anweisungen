@@ -24,7 +24,7 @@
   <link rel="apple-touch-icon" sizes="152x152" href="apple-touch-icon-152.png" />
   <link rel="apple-touch-icon" sizes="120x120" href="apple-touch-icon-120.png" />
   <title>Anweisungen</title>
-  <link rel="stylesheet" href="styles.css?v=2.17" />
+  <link rel="stylesheet" href="styles.css?v=2.18" />
 </head>
 <body>
   <script>
@@ -288,7 +288,14 @@
       <p class="modal-message" id="confirmMessage">Seite wirklich löschen?</p>
       <div class="modal-actions">
         <button type="button" class="btn touch" id="confirmCancel">Abbrechen</button>
+        <button type="button" class="btn touch confirm-more-btn" id="confirmMore" aria-expanded="false" aria-controls="confirmExtra" hidden>Mehr…</button>
         <button type="button" class="btn touch danger" id="confirmOk">Löschen</button>
+      </div>
+      <div class="confirm-extra" id="confirmExtra" hidden>
+        <p class="confirm-extra-text" id="confirmExtraText">Den zuletzt auf diesem Gerät gesicherten Stand dieser Datei öffnen.</p>
+        <p class="confirm-extra-info" id="confirmExtraInfo"></p>
+        <p class="confirm-extra-hint" id="confirmExtraHint" hidden>Kein lokaler Stand dieser Datei vorhanden</p>
+        <button type="button" class="btn touch" id="confirmLocal" hidden>Lokalen Stand öffnen</button>
       </div>
     </div>
   </div>
@@ -377,6 +384,6 @@
 
   <script src="vendor/jszip.min.js"></script>
   <script src="vendor/pdf-lib.min.js"></script>
-  <script src="app.js?v=2.17"></script>
+  <script src="app.js?v=2.18"></script>
 </body>
 </html>
