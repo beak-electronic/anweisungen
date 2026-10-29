@@ -5712,6 +5712,7 @@ html.orient-portrait.app-h-fixed .page-viewport {
   color: #f0f2f5;
   font-size: 0.95rem;
 }
+/* Initialen der speichernden Person (v2.23) – Teil der Datumszeile „… · DK“ */
 .versions-stats {
   color: #b4bac3;
   font-size: 0.82rem;

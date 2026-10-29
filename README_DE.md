@@ -2,7 +2,12 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.22
+**Version:** 2.23
+
+## Neu in 2.23
+
+- **Versionen – Initialen der speichernden Person:** Beim **Sichern** werden die Geräte-Initialen (Menü → Initialen eintragen, z. B. DK) in den Versions-Metadaten der `.beak`-Datei mitabgelegt. In **Letzte Versionen** erscheinen sie neben Datum/Uhrzeit (z. B. `29.10.2026, 15:59 · DK`). Ohne gesetzte Initialen oder bei älteren Ständen (vor 2.23) bleibt die Anzeige ohne Kürzel – kein Fehler.
+- **Service Worker:** Cache `anweisungen-shell-v2.23` und `?v=2.23`.
 
 ## Neu in 2.22
 

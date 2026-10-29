@@ -3149,7 +3149,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.22';
+  const APP_VERSION = '2.23';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -11502,12 +11502,21 @@
         thumbDataUrl = await makeVersionThumbDataUrl();
       } catch (_) { thumbDataUrl = null; }
     }
+    let savedBy = '';
+    try {
+      savedBy = (typeof getStoredDeviceNickname === 'function' ? getStoredDeviceNickname() : '') || '';
+      savedBy = String(savedBy).trim().slice(0, 48);
+    } catch (_) { savedBy = ''; }
+    if (o.savedBy != null && String(o.savedBy).trim()) {
+      savedBy = String(o.savedBy).trim().slice(0, 48);
+    }
     return {
       id: o.id || uid('ver'),
       savedAt: (project && project.savedAt) || new Date().toISOString(),
       pageCount: Array.isArray(proj.pages) ? proj.pages.length : 0,
       photoCount: countPhotosInProjectData(proj),
       contentHash: contentHash,
+      savedBy: savedBy || null,
       project: proj,
       media: media,
       thumbDataUrl: thumbDataUrl,
@@ -11526,6 +11535,7 @@
       pageCount: v.pageCount,
       photoCount: v.photoCount,
       contentHash: v.contentHash,
+      savedBy: (v.savedBy && String(v.savedBy).trim()) ? String(v.savedBy).trim().slice(0, 48) : null,
       project: JSON.parse(JSON.stringify(v.project)),
       media: media,
       thumbDataUrl: v.thumbDataUrl || null,
@@ -11575,6 +11585,7 @@
         pageCount: v.pageCount,
         photoCount: v.photoCount,
         contentHash: v.contentHash,
+        savedBy: (v.savedBy && String(v.savedBy).trim()) ? String(v.savedBy).trim().slice(0, 48) : null,
         project: projPath,
         thumb: v.thumbDataUrl ? (dir + 'thumb.jpg') : null,
       });
@@ -11638,12 +11649,14 @@
       if (it.thumb && zip.file(it.thumb)) {
         try { thumbDataUrl = await blobToDataUrl(await zip.file(it.thumb).async('blob')); } catch (_) {}
       }
+      const savedByRaw = (it && it.savedBy != null) ? String(it.savedBy).trim().slice(0, 48) : '';
       docVersions.push({
         id: it.id,
         savedAt: it.savedAt || (project && project.savedAt) || '',
         pageCount: typeof it.pageCount === 'number' ? it.pageCount : (project.pages || []).length,
         photoCount: typeof it.photoCount === 'number' ? it.photoCount : countPhotosInProjectData(project),
         contentHash: it.contentHash || projectContentHashStable(project),
+        savedBy: savedByRaw || null,
         project: project,
         media: media,
         thumbDataUrl: thumbDataUrl,
@@ -11761,7 +11774,9 @@
       meta.className = 'versions-meta';
       const when = document.createElement('div');
       when.className = 'versions-when';
-      when.textContent = formatBerlinDateTime(v.savedAt);
+      const whenLabel = formatBerlinDateTime(v.savedAt);
+      const by = (v.savedBy && String(v.savedBy).trim()) ? String(v.savedBy).trim() : '';
+      when.textContent = by ? (whenLabel + ' · ' + by) : whenLabel;
       if (isCur) {
         const badge = document.createElement('span');
         badge.className = 'versions-badge';
@@ -17605,7 +17620,10 @@
       /* v2.22 document versions */
       listDocVersions: () => docVersions.map((v) => ({
         id: v.id, savedAt: v.savedAt, pageCount: v.pageCount, photoCount: v.photoCount, contentHash: v.contentHash,
+        savedBy: v.savedBy || null,
       })),
+      setDeviceInitials: (v) => { setStoredDeviceNickname(v || ''); refreshDeviceNicknameHint(); return getStoredDeviceNickname(); },
+      getDeviceInitials: () => getStoredDeviceNickname(),
       docVersionsCount: () => docVersions.length,
       lastSavedHash: () => (lastSavedSnapshot && lastSavedSnapshot.contentHash) || null,
       commitSaveWithVersions: async () => {
