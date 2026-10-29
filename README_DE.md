@@ -2,7 +2,13 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.21
+**Version:** 2.22
+
+## Neu in 2.22
+
+- **Versionen der Anleitung (in der .beak-Datei):** Nach jedem erfolgreichen **Sichern** wird der vorherige Stand als Version in der Datei abgelegt (Ordner `versions/` im ZIP). Pro Datei bleiben die **letzten 10** Stände; ältere fallen weg. Identischer Inhalt wie der letzte Stand erzeugt keine neue Version. Fotos werden über Inhalts-Hash geteilt (`versions/media/…`), damit gleiche Bilder nur einmal liegen. Alte .beak-Dateien ohne `versions/` öffnen weiter (0 Versionen); ältere App-Versionen ignorieren den Ordner und öffnen `project.json` wie bisher.
+- **Menü → Letzte Versionen wiederherstellen…:** Im Datei-Menü (☰) direkt unter **Schließen**. Dialog **Letzte Versionen** mit Datum/Uhrzeit (Europe/Berlin), Seiten- und Fotoanzahl, optional Mini-Vorschau, Markierung **aktuell**. **Wiederherstellen** mit Rückfrage; der aktuelle Stand wird vorher als Version gesichert, danach ist das Projekt ungesichert (erneut **Sichern** schreibt in die Datei). Neue/ungesicherte Projekte: Hinweis ohne Einträge.
+- **Service Worker:** Cache `anweisungen-shell-v2.22` und `?v=2.22`. Auto-Update weiter nur auf dem Startbildschirm (Regel aus 2.21).
 
 ## Neu in 2.21
 

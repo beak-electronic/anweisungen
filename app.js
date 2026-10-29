@@ -2431,6 +2431,18 @@
   let projectFileHandle = null;
   let loadedSaveFileName = null;
   let lastBuiltDocSig = null; /* v1.58: signature of last built project.json */
+  /* v2.22: Anleitungs-Versionen in der .beak-Datei (nicht App-Versionen) */
+  const DOC_VERSIONS_MAX = 10;
+  /** @type {Array<{id:string,savedAt:string,pageCount:number,photoCount:number,contentHash:string,project:object,media:Record<string,{ext:string,bytes:Uint8Array,dataUrl?:string}>,thumbDataUrl?:string|null}>} */
+  let docVersions = [];
+  /** Snapshot des zuletzt erfolgreich gesicherten / geöffneten Stands (wird beim nächsten Sichern zur Version). */
+  let lastSavedSnapshot = null;
+  /** Nach erfolgreichem Sichern übernehmen. */
+  let pendingSavedSnapshot = null;
+  let pendingVersionsWritten = null;
+  /** contentHash des aktuell geladenen/angezeigten Stands (für „aktuell“-Badge). */
+  let docVersionsCurrentHash = null;
+
   /* v1.55: Dokument geöffnet? (false → Willkommen). sessionDirty = Änderungen seit Öffnen/Sichern. */
   let docOpen = false;
   let sessionDirty = false;
@@ -2465,6 +2477,10 @@
     menuBackdrop: document.getElementById('menuBackdrop'),
     pdfExportItem: document.getElementById('pdfExportItem'),
     changeLogExportItem: document.getElementById('changeLogExportItem'),
+    versionsBackdrop: document.getElementById('versionsBackdrop'),
+    versionsList: document.getElementById('versionsList'),
+    versionsEmpty: document.getElementById('versionsEmpty'),
+    versionsCloseBtn: document.getElementById('versionsCloseBtn'),
     changeLogBackdrop: document.getElementById('changeLogBackdrop'),
     changeLogText: document.getElementById('changeLogText'),
     changeLogCopyBtn: document.getElementById('changeLogCopyBtn'),
@@ -2556,6 +2572,7 @@
     tourNextBtn: document.getElementById('tourNextBtn'),
     drawerOpenBtn: document.getElementById('drawerOpenBtn'),
     drawerSaveBtn: document.getElementById('drawerSaveBtn'),
+    drawerVersionsBtn: document.getElementById('drawerVersionsBtn'),
     drawerCloseBtn: document.getElementById('drawerCloseBtn'),
     drawerTourBtn: document.getElementById('drawerTourBtn'),
   };
@@ -3132,7 +3149,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.21';
+  const APP_VERSION = '2.22';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -5108,6 +5125,7 @@
   function openMenu() {
     el.drawer.classList.add('open');
     el.menuBackdrop.classList.add('open');
+    try { el.app.classList.add('menu-drawer-open'); } catch (_) {}
     /* v1.59: chrome must stay usable; cancel idle hide while menu open */
     el.app.classList.remove('chrome-hidden');
     clearChromeIdleTimer();
@@ -5116,6 +5134,7 @@
     const wasOpen = isMenuOpen();
     el.drawer.classList.remove('open');
     el.menuBackdrop.classList.remove('open');
+    try { el.app.classList.remove('menu-drawer-open'); } catch (_) {}
     /* v1.59: resume viewer idle hide only after an actually-open menu closes */
     if (wasOpen && !state.editMode && !tourActive) scheduleChromeIdleHide();
   }
@@ -11283,7 +11302,557 @@
     return 'Anweisungen.beak';
   }
 
-  async function buildPlanZipBlob() {
+
+  /* ==== v2.22: Anleitungs-Versionen (Stände in der .beak-Datei) ================== */
+  async function hashUint8(u8) {
+    const bytes = u8 instanceof Uint8Array ? u8 : new Uint8Array(u8 || []);
+    try {
+      if (crypto && crypto.subtle && typeof crypto.subtle.digest === 'function') {
+        const dig = await crypto.subtle.digest('SHA-256', bytes);
+        return Array.from(new Uint8Array(dig)).map((b) => b.toString(16).padStart(2, '0')).join('');
+      }
+    } catch (_) {}
+    let h = 2166136261;
+    for (let i = 0; i < bytes.length; i++) {
+      h ^= bytes[i];
+      h = Math.imul(h, 16777619);
+    }
+    return 'fnv' + (h >>> 0).toString(16) + '_' + bytes.length.toString(16);
+  }
+
+  function projectContentHashStable(project) {
+    try {
+      const clone = JSON.parse(JSON.stringify(project || {}));
+      delete clone.savedAt;
+      delete clone.changeLog;
+      delete clone.thumbs;
+      /* Dateipfade der Stückliste können sich bei erneutem Packen ändern – Inhalt zählt */
+      if (clone.stueckliste) {
+        clone.stueckliste = { name: clone.stueckliste.name || '' };
+      }
+      if (clone.variantStuecklisten) {
+        const vs = {};
+        for (const [k, info] of Object.entries(clone.variantStuecklisten)) {
+          vs[k] = { name: (info && info.name) || '' };
+        }
+        clone.variantStuecklisten = vs;
+      }
+      if (Array.isArray(clone.variants)) {
+        clone.variants = clone.variants.map((v) => ({
+          id: v.id,
+          label: v.label,
+          kuerzel: v.kuerzel || '',
+          leafId: v.leafId || null,
+        }));
+      }
+      const s = JSON.stringify(clone);
+      let h = 2166136261;
+      for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return 'p' + (h >>> 0).toString(36) + ':' + s.length.toString(36);
+    } catch (_) {
+      return 'p0';
+    }
+  }
+
+  function countPhotosInProjectData(project) {
+    let n = 0;
+    const bump = (photo) => { if (photo && (photo.file || photo.src)) n += 1; };
+    const walk = (cell) => {
+      if (!cell) return;
+      if (cell.type === 'leaf') { bump(cell.photo); return; }
+      if (cell.type === 'split') { walk(cell.a); walk(cell.b); }
+    };
+    for (const p of (project && project.pages) || []) {
+      if (p && p.root) walk(p.root);
+      for (const a of (p && p.annotations) || []) {
+        if (a && a.type === 'photoClipboard') bump(a.photo);
+      }
+    }
+    for (const it of (project && project.imageTray) || []) bump(it && it.photo);
+    return n;
+  }
+
+  function formatBerlinDateTime(iso) {
+    try {
+      const d = new Date(iso);
+      if (!isFinite(d.getTime())) return String(iso || '');
+      return new Intl.DateTimeFormat('de-DE', {
+        timeZone: 'Europe/Berlin',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(d);
+    } catch (_) {
+      return String(iso || '');
+    }
+  }
+
+  function rewriteProjectPhotoFiles(project, pathMap) {
+    const mapPhoto = (photo) => {
+      if (!photo || typeof photo !== 'object') return photo;
+      const f = photo.file;
+      if (f && pathMap[f]) return Object.assign({}, photo, { file: pathMap[f] });
+      return photo;
+    };
+    const walk = (cell) => {
+      if (!cell) return cell;
+      if (cell.type === 'leaf') return Object.assign({}, cell, { photo: mapPhoto(cell.photo) });
+      if (cell.type === 'split') return Object.assign({}, cell, { a: walk(cell.a), b: walk(cell.b) });
+      return cell;
+    };
+    const pages = (project.pages || []).map((p) => {
+      if (!p) return p;
+      const out = Object.assign({}, p);
+      if (p.root) out.root = walk(p.root);
+      if (Array.isArray(p.annotations)) {
+        out.annotations = p.annotations.map((a) => {
+          if (!a || a.type !== 'photoClipboard') return a;
+          return Object.assign({}, a, { photo: mapPhoto(a.photo) });
+        });
+      }
+      return out;
+    });
+    const imageTray = (project.imageTray || []).map((it) => {
+      if (!it) return it;
+      return Object.assign({}, it, { photo: mapPhoto(it.photo) });
+    });
+    return Object.assign({}, project, { pages: pages, imageTray: imageTray });
+  }
+
+
+  function pickPageForVersionThumb() {
+    const pages = (state.doc && state.doc.pages) || [];
+    const hasPhoto = (page) => {
+      if (!page || !page.root) return false;
+      let found = false;
+      walkLeaves(page.root, (leaf) => {
+        if (found) return;
+        const ph = normalizePhoto(leaf.photo);
+        if (ph && (ph.src || ph.file)) found = true;
+      });
+      if (!found && Array.isArray(page.annotations)) {
+        for (const a of page.annotations) {
+          if (a && a.type === 'photoClipboard') {
+            const ph = normalizePhoto(a.photo);
+            if (ph && (ph.src || ph.file)) { found = true; break; }
+          }
+        }
+      }
+      return found;
+    };
+    const layout = pages.filter((p) => p && !isFixedPage(p) && !isVariantenPage(p) && !isIndexPage(p) && !isFehlerPage(p));
+    for (const p of layout) if (hasPhoto(p)) return p;
+    if (layout.length) return layout[0];
+    for (const p of pages) if (p && isVariantenPage(p) && hasPhoto(p)) return p;
+    return pages[0] || null;
+  }
+
+  async function makeVersionThumbDataUrl() {
+    const page = pickPageForVersionThumb();
+    if (!page || typeof renderPageThumbnailDataUrl !== 'function') return null;
+    /* ~200 px breit, kleines JPEG für die Versionen-Liste */
+    const url = await renderPageThumbnailDataUrl(page, 200);
+    return url || null;
+  }
+
+  async function snapshotFromBuiltProject(project, photoByteEntries, opts) {
+    const o = opts || {};
+    const media = Object.create(null);
+    const pathMap = Object.create(null);
+    for (const ent of photoByteEntries || []) {
+      if (!ent || !ent.bytes) continue;
+      const hash = ent.hash || (await hashUint8(ent.bytes));
+      const ext = ent.ext || 'jpg';
+      const mediaPath = 'versions/media/' + hash + '.' + ext;
+      if (!media[hash]) media[hash] = { ext: ext, bytes: ent.bytes, dataUrl: ent.dataUrl || null };
+      if (ent.file) pathMap[ent.file] = mediaPath;
+    }
+    if (o.pdfEntries) {
+      for (const ent of o.pdfEntries) {
+        if (!ent || !ent.bytes) continue;
+        const hash = ent.hash || (await hashUint8(ent.bytes));
+        const mediaPath = 'versions/media/' + hash + '.pdf';
+        if (!media[hash]) media[hash] = { ext: 'pdf', bytes: ent.bytes, dataUrl: ent.dataUrl || null };
+        if (ent.file) pathMap[ent.file] = mediaPath;
+      }
+    }
+    let proj = JSON.parse(JSON.stringify(project));
+    proj = rewriteProjectPhotoFiles(proj, pathMap);
+    if (proj.stueckliste && proj.stueckliste.file && pathMap[proj.stueckliste.file]) {
+      proj.stueckliste = Object.assign({}, proj.stueckliste, { file: pathMap[proj.stueckliste.file] });
+    }
+    if (proj.variantStuecklisten) {
+      const vs = {};
+      for (const [vid, info] of Object.entries(proj.variantStuecklisten)) {
+        if (info && info.file && pathMap[info.file]) vs[vid] = Object.assign({}, info, { file: pathMap[info.file] });
+        else vs[vid] = info;
+      }
+      proj.variantStuecklisten = vs;
+    }
+    delete proj.thumbs;
+    const contentHash = projectContentHashStable(proj);
+    let thumbDataUrl = o.thumbDataUrl || null;
+    if (!thumbDataUrl) {
+      try {
+        thumbDataUrl = await makeVersionThumbDataUrl();
+      } catch (_) { thumbDataUrl = null; }
+    }
+    return {
+      id: o.id || uid('ver'),
+      savedAt: (project && project.savedAt) || new Date().toISOString(),
+      pageCount: Array.isArray(proj.pages) ? proj.pages.length : 0,
+      photoCount: countPhotosInProjectData(proj),
+      contentHash: contentHash,
+      project: proj,
+      media: media,
+      thumbDataUrl: thumbDataUrl,
+    };
+  }
+
+  function cloneDocVersion(v) {
+    if (!v) return null;
+    const media = Object.create(null);
+    for (const [h, m] of Object.entries(v.media || {})) {
+      media[h] = { ext: m.ext, bytes: m.bytes, dataUrl: m.dataUrl || null };
+    }
+    return {
+      id: v.id,
+      savedAt: v.savedAt,
+      pageCount: v.pageCount,
+      photoCount: v.photoCount,
+      contentHash: v.contentHash,
+      project: JSON.parse(JSON.stringify(v.project)),
+      media: media,
+      thumbDataUrl: v.thumbDataUrl || null,
+    };
+  }
+
+  function mergeVersionsForSave(previousSnapshot, existingVersions, currentSnap) {
+    let vers = (existingVersions || []).map(cloneDocVersion);
+    if (previousSnapshot && previousSnapshot.contentHash && currentSnap
+        && previousSnapshot.contentHash !== currentSnap.contentHash) {
+      if (!vers.length || vers[0].contentHash !== previousSnapshot.contentHash) {
+        vers.unshift(cloneDocVersion(previousSnapshot));
+      }
+    }
+    const seen = new Set();
+    vers = vers.filter((v) => {
+      if (!v || !v.contentHash || seen.has(v.contentHash)) return false;
+      seen.add(v.contentHash);
+      return true;
+    });
+    return vers.slice(0, DOC_VERSIONS_MAX);
+  }
+
+  async function writeDocVersionsToZip(zip, versions) {
+    const list = versions || [];
+    const index = [];
+    const writtenMedia = new Set();
+    for (const v of list) {
+      if (!v || !v.id) continue;
+      const dir = 'versions/' + v.id + '/';
+      const projPath = dir + 'project.json';
+      zip.file(projPath, JSON.stringify(v.project));
+      if (v.thumbDataUrl) {
+        try {
+          const tb = await dataUrlToUint8(v.thumbDataUrl);
+          zip.file(dir + 'thumb.jpg', tb);
+        } catch (_) {}
+      }
+      for (const [hash, m] of Object.entries(v.media || {})) {
+        if (!m || !m.bytes || writtenMedia.has(hash)) continue;
+        zip.file('versions/media/' + hash + '.' + (m.ext || 'jpg'), m.bytes);
+        writtenMedia.add(hash);
+      }
+      index.push({
+        id: v.id,
+        savedAt: v.savedAt,
+        pageCount: v.pageCount,
+        photoCount: v.photoCount,
+        contentHash: v.contentHash,
+        project: projPath,
+        thumb: v.thumbDataUrl ? (dir + 'thumb.jpg') : null,
+      });
+    }
+    zip.file('versions/index.json', JSON.stringify({ version: 1, items: index }));
+  }
+
+  async function loadDocVersionsFromZip(zip) {
+    docVersions = [];
+    if (!zip) return;
+    const idxFile = zip.file('versions/index.json');
+    if (!idxFile) return;
+    let idx;
+    try { idx = JSON.parse(await idxFile.async('string')); }
+    catch (err) { console.warn('versions/index.json', err); return; }
+    const items = (idx && Array.isArray(idx.items)) ? idx.items : [];
+    const mediaStore = Object.create(null);
+    try {
+      for (const n of Object.keys(zip.files || {})) {
+        if (zip.files[n].dir) continue;
+        const m = /^versions\/media\/([a-f0-9]+)\.([a-z0-9]+)$/i.exec(n);
+        if (!m) continue;
+        const hash = m[1].toLowerCase();
+        const ext = m[2].toLowerCase();
+        try {
+          const bytes = new Uint8Array(await zip.file(n).async('uint8array'));
+          const blob = new Blob([bytes], { type: ext === 'pdf' ? 'application/pdf' : ('image/' + (ext === 'jpg' ? 'jpeg' : ext)) });
+          mediaStore[hash] = { ext: ext, bytes: bytes, dataUrl: await blobToDataUrl(blob) };
+        } catch (err) { console.warn('version media', n, err); }
+      }
+    } catch (_) {}
+    for (const it of items) {
+      if (!it || !it.id || !it.project) continue;
+      const pf = zip.file(it.project);
+      if (!pf) continue;
+      let project;
+      try { project = JSON.parse(await pf.async('string')); } catch (_) { continue; }
+      const media = Object.create(null);
+      const need = new Set();
+      const collect = (file) => {
+        if (!file || typeof file !== 'string') return;
+        const mm = /versions\/media\/([a-f0-9]+)\./i.exec(file);
+        if (mm) need.add(mm[1].toLowerCase());
+      };
+      const walk = (cell) => {
+        if (!cell) return;
+        if (cell.type === 'leaf') { if (cell.photo) collect(cell.photo.file); return; }
+        if (cell.type === 'split') { walk(cell.a); walk(cell.b); }
+      };
+      for (const p of project.pages || []) {
+        if (p && p.root) walk(p.root);
+        for (const a of (p && p.annotations) || []) if (a && a.photo) collect(a.photo.file);
+      }
+      for (const t of project.imageTray || []) if (t && t.photo) collect(t.photo.file);
+      if (project.stueckliste) collect(project.stueckliste.file);
+      if (project.variantStuecklisten) {
+        for (const info of Object.values(project.variantStuecklisten)) if (info) collect(info.file);
+      }
+      for (const h of need) if (mediaStore[h]) media[h] = mediaStore[h];
+      let thumbDataUrl = null;
+      if (it.thumb && zip.file(it.thumb)) {
+        try { thumbDataUrl = await blobToDataUrl(await zip.file(it.thumb).async('blob')); } catch (_) {}
+      }
+      docVersions.push({
+        id: it.id,
+        savedAt: it.savedAt || (project && project.savedAt) || '',
+        pageCount: typeof it.pageCount === 'number' ? it.pageCount : (project.pages || []).length,
+        photoCount: typeof it.photoCount === 'number' ? it.photoCount : countPhotosInProjectData(project),
+        contentHash: it.contentHash || projectContentHashStable(project),
+        project: project,
+        media: media,
+        thumbDataUrl: thumbDataUrl,
+      });
+    }
+  }
+
+  function resetDocVersionsState() {
+    docVersions = [];
+    lastSavedSnapshot = null;
+    pendingSavedSnapshot = null;
+    pendingVersionsWritten = null;
+    docVersionsCurrentHash = null;
+  }
+
+  function mediaDataUrlForProjectPhoto(photo, media) {
+    if (!photo) return null;
+    if (photo.src) return photo.src;
+    const f = photo.file;
+    if (!f) return null;
+    const m = /versions\/media\/([a-f0-9]+)\./i.exec(f);
+    if (m && media && media[m[1].toLowerCase()] && media[m[1].toLowerCase()].dataUrl) {
+      return media[m[1].toLowerCase()].dataUrl;
+    }
+    return null;
+  }
+
+  function hydrateProjectPhotosFromMedia(project, media) {
+    const walk = (cell) => {
+      if (!cell) return;
+      if (cell.type === 'leaf') {
+        if (cell.photo) {
+          const src = mediaDataUrlForProjectPhoto(cell.photo, media);
+          if (src) cell.photo.src = src;
+        }
+        return;
+      }
+      if (cell.type === 'split') { walk(cell.a); walk(cell.b); }
+    };
+    for (const p of (project && project.pages) || []) {
+      if (p && p.root) walk(p.root);
+      for (const a of (p && p.annotations) || []) {
+        if (a && a.photo) {
+          const src = mediaDataUrlForProjectPhoto(a.photo, media);
+          if (src) a.photo.src = src;
+        }
+      }
+    }
+    for (const it of (project && project.imageTray) || []) {
+      if (it && it.photo) {
+        const src = mediaDataUrlForProjectPhoto(it.photo, media);
+        if (src) it.photo.src = src;
+      }
+    }
+  }
+
+  async function hydrateStuecklisteFromVersion(project, media) {
+    state.stueckliste = null;
+    state.variantStuecklisten = {};
+    const loadPdf = async (file, name) => {
+      const m = /versions\/media\/([a-f0-9]+)\./i.exec(file || '');
+      if (!m) return null;
+      const rec = media && media[m[1].toLowerCase()];
+      if (!rec || !rec.dataUrl) return null;
+      return { name: name || 'Stueckliste.pdf', dataUrl: rec.dataUrl, parts: null };
+    };
+    if (project.stueckliste && project.stueckliste.file) {
+      state.stueckliste = await loadPdf(project.stueckliste.file, project.stueckliste.name);
+    }
+    if (project.variantStuecklisten) {
+      for (const [vid, info] of Object.entries(project.variantStuecklisten)) {
+        if (!info || !info.file) continue;
+        const rec = await loadPdf(info.file, info.name);
+        if (rec) state.variantStuecklisten[vid] = rec;
+      }
+    }
+  }
+
+  function closeVersionsModal() {
+    if (el.versionsBackdrop) el.versionsBackdrop.hidden = true;
+  }
+
+  function rebuildVersionsListUi() {
+    const listEl = el.versionsList;
+    const emptyEl = el.versionsEmpty;
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    const items = docVersions.slice();
+    const markHash = docVersionsCurrentHash
+      || ((!sessionDirty && lastSavedSnapshot) ? lastSavedSnapshot.contentHash : null);
+    if (!items.length) {
+      if (emptyEl) emptyEl.hidden = false;
+      return;
+    }
+    if (emptyEl) emptyEl.hidden = true;
+    for (const v of items) {
+      const li = document.createElement('li');
+      const isCur = !!(markHash && v.contentHash === markHash);
+      li.className = 'versions-item' + (isCur ? ' is-current' : '');
+      li.dataset.versionId = v.id;
+      if (v.thumbDataUrl) {
+        const img = document.createElement('img');
+        img.className = 'versions-thumb';
+        img.alt = '';
+        img.draggable = false;
+        img.src = v.thumbDataUrl;
+        li.appendChild(img);
+      } else {
+        const ph = document.createElement('div');
+        ph.className = 'versions-thumb is-placeholder';
+        ph.textContent = '—';
+        li.appendChild(ph);
+      }
+      const meta = document.createElement('div');
+      meta.className = 'versions-meta';
+      const when = document.createElement('div');
+      when.className = 'versions-when';
+      when.textContent = formatBerlinDateTime(v.savedAt);
+      if (isCur) {
+        const badge = document.createElement('span');
+        badge.className = 'versions-badge';
+        badge.textContent = 'aktuell';
+        when.appendChild(badge);
+      }
+      meta.appendChild(when);
+      const stats = document.createElement('div');
+      stats.className = 'versions-stats';
+      stats.textContent = v.pageCount + (v.pageCount === 1 ? ' Seite · ' : ' Seiten · ') + v.photoCount + (v.photoCount === 1 ? ' Foto' : ' Fotos');
+      meta.appendChild(stats);
+      li.appendChild(meta);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn sm versions-restore' + (isCur ? '' : ' primary');
+      btn.textContent = 'Wiederherstellen';
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        void restoreDocVersion(v.id);
+      });
+      li.appendChild(btn);
+      listEl.appendChild(li);
+    }
+  }
+
+  function openVersionsModal() {
+    if (!docOpen) { flash('Kein Projekt geöffnet'); return; }
+    rebuildVersionsListUi();
+    if (el.versionsBackdrop) el.versionsBackdrop.hidden = false;
+  }
+
+  async function restoreDocVersion(versionId) {
+    const v = docVersions.find((x) => x && x.id === versionId);
+    if (!v) return;
+    const label = formatBerlinDateTime(v.savedAt);
+    closeVersionsModal();
+    const ok = await showConfirm(
+      'Stand vom ' + label + ' wiederherstellen? Der aktuelle Stand wird vorher als Version gesichert.',
+      { okLabel: 'Wiederherstellen', cancelLabel: 'Abbrechen', okPrimary: true }
+    );
+    if (!ok) return;
+    showProgress('Version wird wiederhergestellt…');
+    try {
+      let curSnap = null;
+      try {
+        await buildPlanZipBlob({ deferVersionCommit: true });
+        curSnap = pendingSavedSnapshot ? cloneDocVersion(pendingSavedSnapshot) : null;
+      } catch (err) {
+        console.warn('Snapshot vor Wiederherstellen', err);
+      }
+      if (curSnap && curSnap.contentHash) {
+        if (!docVersions.length || docVersions[0].contentHash !== curSnap.contentHash) {
+          docVersions.unshift(curSnap);
+        }
+        const seen = new Set();
+        docVersions = docVersions.filter((x) => {
+          if (!x || !x.contentHash || seen.has(x.contentHash)) return false;
+          seen.add(x.contentHash);
+          return true;
+        }).slice(0, DOC_VERSIONS_MAX);
+      }
+      const proj = JSON.parse(JSON.stringify(v.project));
+      hydrateProjectPhotosFromMedia(proj, v.media);
+      hist.loading++;
+      changeLogQuiet = true;
+      try {
+        if (!applyLoaded(proj)) {
+          flash('Version konnte nicht geladen werden', 5000, 'error');
+          return;
+        }
+        try { await hydrateStuecklisteFromVersion(proj, v.media); } catch (_) {}
+        updateStuecklisteUi();
+        rebuildBeakUsage();
+        renderAll();
+      } finally {
+        hist.loading--;
+        historyReset();
+        changeLogQuiet = false;
+      }
+      sessionDirty = true;
+      store.dirty = true;
+      docVersionsCurrentHash = v.contentHash || null;
+      try { schedulePersist(); } catch (_) {}
+      flash('Stand vom ' + label + ' wiederhergestellt – bitte Sichern', 4500);
+      try { appendChangeLog('Version wiederhergestellt (' + label + ')', null); } catch (_) {}
+    } finally {
+      hideProgress();
+    }
+  }
+
+  async function buildPlanZipBlob(opts) {
     if (typeof JSZip === 'undefined') {
       throw new Error('JSZip nicht geladen');
     }
@@ -11514,10 +12083,21 @@
     lastBuiltDocSig = projectContentSignature(project, projJson);
     zip.file('project.json', projJson);
 
+    const photoByteEntries = [];
     for (const entry of photoEntries) {
       try {
         const bytes = await dataUrlToUint8(entry.src);
+        const hash = await hashUint8(bytes);
+        const ext = guessImageExt(entry.src);
         zip.file(entry.file, bytes);
+        photoByteEntries.push({
+          file: entry.file,
+          src: entry.src,
+          bytes: bytes,
+          hash: hash,
+          ext: ext,
+          dataUrl: entry.src,
+        });
       } catch (err) {
         console.warn('Foto übersprungen', entry.file, err);
       }
@@ -11532,12 +12112,19 @@
       }
     }
 
+    const pdfByteEntries = [];
     if (state.stueckliste && state.stueckliste.dataUrl) {
       try {
         const pdfBytes = await dataUrlToUint8(state.stueckliste.dataUrl);
         const file = (project.stueckliste && project.stueckliste.file)
           || stuecklisteZipPathFromName(state.stueckliste.name || 'Stueckliste.pdf');
         zip.file(file, pdfBytes);
+        pdfByteEntries.push({
+          file: file,
+          bytes: pdfBytes,
+          hash: await hashUint8(pdfBytes),
+          dataUrl: state.stueckliste.dataUrl,
+        });
       } catch (err) {
         console.warn('Stuckliste-PDF uebersprungen', err);
       }
@@ -11554,13 +12141,52 @@
         try {
           const pdfBytes = await dataUrlToUint8(rec.dataUrl);
           zip.file(file, pdfBytes);
+          pdfByteEntries.push({
+            file: file,
+            bytes: pdfBytes,
+            hash: await hashUint8(pdfBytes),
+            dataUrl: rec.dataUrl,
+          });
         } catch (err) {
           console.warn('Varianten-Stuckliste uebersprungen', file, err);
         }
       }
     }
 
+    /* v2.22: vorherigen Stand als Version in die Datei schreiben (max. 10, Foto-Dedupe) */
+    const zipOpts = opts || {};
+    let currentSnap = null;
+    try {
+      currentSnap = await snapshotFromBuiltProject(project, photoByteEntries, {
+        pdfEntries: pdfByteEntries,
+      });
+    } catch (err) {
+      console.warn('Version-Snapshot', err);
+    }
+    let versionsOut = docVersions.slice();
+    try {
+      versionsOut = mergeVersionsForSave(lastSavedSnapshot, docVersions, currentSnap);
+      await writeDocVersionsToZip(zip, versionsOut);
+    } catch (err) {
+      console.warn('Versionen in ZIP', err);
+    }
+    pendingSavedSnapshot = currentSnap;
+    pendingVersionsWritten = versionsOut;
+    if (!zipOpts.deferVersionCommit) {
+      /* Wird nach erfolgreichem Download in save() finalisiert; hier nur vorbereiten. */
+    }
+
     return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+  }
+
+  function commitDocVersionsAfterSave() {
+    if (pendingSavedSnapshot) {
+      lastSavedSnapshot = cloneDocVersion(pendingSavedSnapshot);
+      docVersionsCurrentHash = pendingSavedSnapshot.contentHash || null;
+    }
+    if (pendingVersionsWritten) docVersions = pendingVersionsWritten.map(cloneDocVersion);
+    pendingSavedSnapshot = null;
+    pendingVersionsWritten = null;
   }
 
   /* ---- v1.17: Browser-Speicher in IndexedDB (Fotos/PDF als Blobs) ------------------------
@@ -12072,6 +12698,7 @@
       }
       const savedName = (projectFileHandle && projectFileHandle.name) || fname;
       sessionDirty = false;
+      try { commitDocVersionsAfterSave(); } catch (err) { console.warn('Versionen übernehmen', err); }
       try { appendChangeLog('Projekt gesichert', null); } catch (_) {}
       try {
         const k = docKeyFromFileName(savedName) || docFilenameKey();
@@ -12580,6 +13207,7 @@
       flash('Keine Anweisungen-Projektdatei (ungültiges Format)', 8000, 'error');
       return;
     }
+    try { resetDocVersionsState(); } catch (_) {}
     try {
       await loadPhotosFromZip(zip, state.doc.pages);
     } catch (err) {
@@ -12597,6 +13225,12 @@
       console.warn('Stückliste aus ZIP', err);
       state.stueckliste = null;
     }
+    try {
+      await loadDocVersionsFromZip(zip);
+    } catch (err) {
+      console.warn('Versionen aus ZIP', err);
+      docVersions = [];
+    }
     updateStuecklisteUi();
     rebuildBeakUsage();
     renderAll();
@@ -12609,6 +13243,25 @@
     quietLocalStorageBackup();
     try { rememberDocSignature(openDocKey || docKeyFromFileName(loadedSaveFileName), openSig); } catch (_) {}
     try { appendChangeLog('Projekt geöffnet', null); } catch (_) {}
+    /* Aktueller Dateistand = Basis für nächste Version beim Sichern */
+    try {
+      pendingSavedSnapshot = null;
+      pendingVersionsWritten = null;
+      const blob = await buildPlanZipBlob({ deferVersionCommit: true });
+      void blob;
+      if (pendingSavedSnapshot) {
+        lastSavedSnapshot = cloneDocVersion(pendingSavedSnapshot);
+        docVersionsCurrentHash = pendingSavedSnapshot.contentHash || null;
+      }
+      /* buildPlanZipBlob hätte mergeVersionsForSave mit lastSaved=null gemacht und
+         versionsOut = bestehende docVersions geschrieben – pendingVersionsWritten
+         nicht als docVersions überschreiben beim bloßen Öffnen. */
+      pendingSavedSnapshot = null;
+      pendingVersionsWritten = null;
+    } catch (err) {
+      console.warn('lastSavedSnapshot nach Öffnen', err);
+      lastSavedSnapshot = null;
+    }
     flash('Geöffnet: ' + loadedSaveFileName);
     warmupPdfPipeline();
   }
@@ -14376,6 +15029,13 @@
   el.sichernBtn.addEventListener('click', () => { void save(); });
   if (el.drawerOpenBtn) el.drawerOpenBtn.addEventListener('click', () => { closeMenu(); void load(); });
   if (el.drawerSaveBtn) el.drawerSaveBtn.addEventListener('click', () => { closeMenu(); void save(); });
+  if (el.drawerVersionsBtn) el.drawerVersionsBtn.addEventListener('click', () => { closeMenu(); openVersionsModal(); });
+  if (el.versionsCloseBtn) el.versionsCloseBtn.addEventListener('click', () => closeVersionsModal());
+  if (el.versionsBackdrop) {
+    el.versionsBackdrop.addEventListener('click', (e) => {
+      if (e.target === el.versionsBackdrop) closeVersionsModal();
+    });
+  }
   if (el.drawerCloseBtn) el.drawerCloseBtn.addEventListener('click', () => { void closeDocument(); });
   if (el.drawerTourBtn) el.drawerTourBtn.addEventListener('click', () => { openTour(); });
   if (el.welcomeNewBtn) el.welcomeNewBtn.addEventListener('click', () => { void startNewProject(); });
@@ -15477,6 +16137,10 @@
       el.drawerSaveBtn.disabled = !on;
       el.drawerSaveBtn.setAttribute('aria-disabled', on ? 'false' : 'true');
     }
+    if (el.drawerVersionsBtn) {
+      el.drawerVersionsBtn.disabled = !on;
+      el.drawerVersionsBtn.setAttribute('aria-disabled', on ? 'false' : 'true');
+    }
     if (el.drawerCloseBtn) {
       el.drawerCloseBtn.disabled = !on;
       el.drawerCloseBtn.setAttribute('aria-disabled', on ? 'false' : 'true');
@@ -15589,6 +16253,7 @@
   }
 
   function resetToEmptySession() {
+    try { resetDocVersionsState(); } catch (_) {}
     try { stopLiveCamera(); } catch (_) {}
     try { clearPersistedThumbs(); } catch (_) {}
     clearTimeout(store.timer);
@@ -16893,6 +17558,129 @@
         const before = imageTrayCount();
         addPhotoToImageTray({ src: dataUrl });
         return { before, after: imageTrayCount(), flash: (el.statusFlash && el.statusFlash.textContent) || '' };
+      },
+
+      injectPhotosAndPdf: async (urls, pdfUrl) => {
+        const list = Array.isArray(urls) ? urls : [];
+        let injected = 0;
+        const layoutPages = (state.doc.pages || []).filter((p) => p && !isFixedPage(p) && !isVariantenPage(p) && !isIndexPage(p) && !isFehlerPage(p));
+        let ui = 0;
+        for (const page of layoutPages) {
+          if (!page.root) continue;
+          walkLeaves(page.root, (leaf) => {
+            if (ui >= list.length) return;
+            const src = list[ui++];
+            leaf.photo = normalizePhoto({ src: src, scale: 1, x: 0.5, y: 0.5, tx: 0, ty: 0, rot: 0 });
+            injected++;
+          });
+        }
+        /* remaining → tray (max 7) */
+        let trayAdd = 0;
+        while (ui < list.length && !imageTrayIsFull()) {
+          if (addPhotoToImageTray({ src: list[ui++] })) trayAdd++;
+          else break;
+        }
+        if (pdfUrl) {
+          state.stueckliste = { name: 'Stueckliste.pdf', dataUrl: pdfUrl, parts: null };
+          try { updateStuecklisteUi(); } catch (_) {}
+        }
+        sessionDirty = true;
+        store.dirty = true;
+        try { renderAll(); } catch (_) {}
+        return { injected, trayAdd, pages: layoutPages.length, leftover: Math.max(0, list.length - injected - trayAdd) };
+      },
+      getTrayCount: () => imageTrayCount(),
+      getPhotoCountLive: () => {
+        let n = imageTrayCount();
+        for (const p of state.doc.pages || []) {
+          if (!p || !p.root) continue;
+          walkLeaves(p.root, (leaf) => {
+            const ph = normalizePhoto(leaf && leaf.photo);
+            if (ph && ph.src) n++;
+          });
+        }
+        return n;
+      },
+      getDocVersionsCurrentHash: () => docVersionsCurrentHash,
+      /* v2.22 document versions */
+      listDocVersions: () => docVersions.map((v) => ({
+        id: v.id, savedAt: v.savedAt, pageCount: v.pageCount, photoCount: v.photoCount, contentHash: v.contentHash,
+      })),
+      docVersionsCount: () => docVersions.length,
+      lastSavedHash: () => (lastSavedSnapshot && lastSavedSnapshot.contentHash) || null,
+      commitSaveWithVersions: async () => {
+        const blob = await buildPlanZipBlob();
+        commitDocVersionsAfterSave();
+        sessionDirty = false;
+        const ab = await blob.arrayBuffer();
+        const u8 = new Uint8Array(ab);
+        let bin = '';
+        const step = 0x8000;
+        for (let o = 0; o < u8.length; o += step) bin += String.fromCharCode.apply(null, u8.subarray(o, o + step));
+        return {
+          size: blob.size,
+          versions: docVersions.length,
+          hashes: docVersions.map((v) => v.contentHash),
+          currentHash: lastSavedSnapshot && lastSavedSnapshot.contentHash,
+          b64: btoa(bin),
+        };
+      },
+      loadBeakBufWithVersions: async (buf) => {
+        hist.loading++;
+        try {
+          let input = buf;
+          if (typeof buf === 'string') {
+            const bin = atob(buf);
+            const u8 = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+            input = u8;
+          }
+          const zip = await JSZip.loadAsync(input);
+          const pf = zip.file('project.json');
+          if (!pf) return { ok: false, err: 'no-json' };
+          const data = JSON.parse(await pf.async('string'));
+          if (!applyLoaded(data)) return { ok: false, err: 'apply' };
+          await loadPhotosFromZip(zip, state.doc.pages);
+          try { await loadStuecklisteFromZip(zip, data); } catch (_) {}
+          await loadDocVersionsFromZip(zip);
+          renderAll();
+          historyReset();
+          loadedSaveFileName = 'Anweisungen.beak';
+          enterOpenDocument({ clearDirty: true, hideChrome: true });
+          try {
+            await buildPlanZipBlob({ deferVersionCommit: true });
+            if (pendingSavedSnapshot) {
+              lastSavedSnapshot = cloneDocVersion(pendingSavedSnapshot);
+              docVersionsCurrentHash = pendingSavedSnapshot.contentHash || null;
+            }
+            pendingSavedSnapshot = null;
+            pendingVersionsWritten = null;
+          } catch (_) {}
+          return { ok: true, versions: docVersions.length, tray: imageTrayCount(), currentHash: docVersionsCurrentHash };
+        } catch (e) {
+          return { ok: false, err: String(e && e.message || e) };
+        } finally { hist.loading--; }
+      },
+      restoreVersion: (id) => restoreDocVersion(id),
+      openVersionsModal: () => openVersionsModal(),
+      setSessionDirty: (on) => { sessionDirty = !!on; },
+      peekZipVersions: async (buf) => {
+        let input = buf;
+        if (typeof buf === 'string') {
+          const bin = atob(buf);
+          const u8 = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+          input = u8;
+        }
+        const zip = await JSZip.loadAsync(input);
+        const f = zip.file('versions/index.json');
+        if (!f) return { n: 0, media: 0 };
+        const idx = JSON.parse(await f.async('string'));
+        let media = 0;
+        for (const n of Object.keys(zip.files || {})) {
+          if (/^versions\/media\//.test(n) && !zip.files[n].dir) media++;
+        }
+        return { n: (idx.items || []).length, media, items: idx.items || [] };
       },
     };
   } catch (_) {}

@@ -24,7 +24,7 @@
   <link rel="apple-touch-icon" sizes="152x152" href="apple-touch-icon-152.png" />
   <link rel="apple-touch-icon" sizes="120x120" href="apple-touch-icon-120.png" />
   <title>Anweisungen</title>
-  <link rel="stylesheet" href="styles.css?v=2.21" />
+  <link rel="stylesheet" href="styles.css?v=2.22" />
 </head>
 <body>
   <script>
@@ -199,6 +199,9 @@
       </button>
       <button type="button" class="btn touch block" id="drawerCloseBtn">
         <span>Schließen</span>
+      </button>
+      <button type="button" class="btn touch block" id="drawerVersionsBtn">
+        <span>Letzte Versionen wiederherstellen…</span>
       </button>
       <div class="drawer-section" id="stuecklisteSection">BEAK Stückliste</div>
       <button type="button" class="btn touch block" id="stuecklisteAddBtn">
@@ -380,6 +383,18 @@
     </div>
   </div>
 
+  <!-- v2.22: Anleitungs-Versionen (Stände in der .beak-Datei) -->
+  <div class="modal-backdrop" id="versionsBackdrop" hidden>
+    <div class="modal modal-versions" role="dialog" aria-modal="true" aria-labelledby="versionsTitle">
+      <h2 class="modal-title" id="versionsTitle">Letzte Versionen</h2>
+      <p class="versions-empty" id="versionsEmpty" hidden>Keine gespeicherten Stände. Versionen entstehen beim Sichern einer geöffneten Datei.</p>
+      <ul class="versions-list" id="versionsList" role="list"></ul>
+      <div class="modal-actions versions-actions">
+        <button type="button" class="btn touch" id="versionsCloseBtn">Schließen</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-backdrop" id="changeLogBackdrop" hidden>
     <div class="modal modal-changelog" role="dialog" aria-modal="true" aria-labelledby="changeLogTitle">
       <h2 class="modal-title" id="changeLogTitle">Änderungsprotokoll</h2>
@@ -416,6 +431,6 @@
 
   <script src="vendor/jszip.min.js"></script>
   <script src="vendor/pdf-lib.min.js"></script>
-  <script src="app.js?v=2.21"></script>
+  <script src="app.js?v=2.22"></script>
 </body>
 </html>
