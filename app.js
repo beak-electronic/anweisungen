@@ -63,7 +63,7 @@
      Entscheidung: eine Ablage pro Projekt (state.doc.imageTray), nicht pro Variante.
      Fotos liegen ohnehin in photos/ + Autosave; Varianten teilen oft dieselben Rohfotos.
      Max. 10 Einträge. Nicht in Viewer, PDF oder Seiten-Thumbs. */
-  const IMAGE_TRAY_MAX = 10;
+  const IMAGE_TRAY_MAX = 7;
   const IMAGE_TRAY_CAM_ID = '__imageTray__';
   const IMAGE_TRAY_EDGE_PX = 24;
 
@@ -80,8 +80,8 @@
       if (!it || typeof it !== 'object') continue;
       const photo = normalizePhoto(it.photo);
       if (!photo) continue;
+      /* v2.21: Altbestand > MAX behalten (kein Datenverlust beim Laden) */
       out.push({ id: (typeof it.id === 'string' && it.id) ? it.id : uid('t'), photo: photo });
-      if (out.length >= IMAGE_TRAY_MAX) break;
     }
     return out;
   }
@@ -109,6 +109,8 @@
       if (want) {
         el.imageTrayPanel.hidden = false;
         el.imageTrayPanel.classList.add('is-open');
+        try { scheduleImageTrayGeometry(); } catch (_) {}
+        requestAnimationFrame(() => { try { scheduleImageTrayGeometry(); } catch (_) {} });
       } else {
         el.imageTrayPanel.classList.remove('is-open');
         /* nach Transition verstecken – sofort ok für Tests */
@@ -178,7 +180,7 @@
     opts = opts || {};
     const list = ensureImageTray();
     if (list.length >= IMAGE_TRAY_MAX) {
-      if (!opts.silent) flash('Bildzwischenspeicher voll (max. 10)', 2800, 'error');
+      if (!opts.silent) flash('Bildzwischenspeicher voll (max. 7)', 2800, 'error');
       return null;
     }
     const p = normalizePhoto(photo);
@@ -214,55 +216,170 @@
     return ensureImageTray().find((x) => x && x.id === id) || null;
   }
 
+  /* v2.21: Tray-Bottom über Variantenleiste/Seitenanzeige; Breite aus Slot-Höhe → 4:3 */
+  let trayGeoRaf = 0;
+  function imageTrayBottomClearancePx() {
+    const app = el.app || document.getElementById('app');
+    if (!app) return 16;
+    const appR = app.getBoundingClientRect();
+    const GAP = 8;
+    /* Ohne Variantenleiste: etwas Luft unten (nicht bis ganz ans Display) */
+    let bottomPx = 16;
+    const safe = (() => {
+      try {
+        const v = getComputedStyle(document.documentElement).getPropertyValue('env(safe-area-inset-bottom)');
+        const n = parseFloat(v);
+        return Number.isFinite(n) ? n : 0;
+      } catch (_) { return 0; }
+    })();
+    bottomPx = Math.max(bottomPx, Math.ceil(safe + 8));
+
+    const bar = document.getElementById('variantBar');
+    if (bar && !bar.hidden) {
+      const br = bar.getBoundingClientRect();
+      if (br.height > 2 && br.top < appR.bottom - 1) {
+        bottomPx = Math.max(bottomPx, Math.ceil(appR.bottom - br.top + GAP));
+      }
+    }
+
+    const ind = el.pageIndicator || document.getElementById('pageIndicator');
+    if (ind) {
+      const st = getComputedStyle(ind);
+      if (st.display !== 'none' && st.visibility !== 'hidden' && parseFloat(st.opacity || '1') > 0.05) {
+        const ir = ind.getBoundingClientRect();
+        if (ir.height > 2 && ir.top < appR.bottom - 1) {
+          /* Tray rechts – nur wenn die Seitenanzeige horizontal in die Tray-Zone ragt */
+          const trayW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--image-tray-w')) || 148;
+          const trayLeft = appR.right - trayW - 8;
+          if (ir.right > trayLeft - 4) {
+            bottomPx = Math.max(bottomPx, Math.ceil(appR.bottom - ir.top + GAP));
+          }
+        }
+      }
+    }
+    return bottomPx;
+  }
+  function syncImageTrayGeometry() {
+    const panel = el.imageTrayPanel;
+    const listEl = el.imageTrayList;
+    if (!panel || !listEl || panel.hidden || !state.imageTrayOpen) return;
+
+    const bottomPx = imageTrayBottomClearancePx();
+    document.documentElement.style.setProperty('--image-tray-bottom', bottomPx + 'px');
+    /* Reflow erzwingen, damit listH die neue Höhe hat */
+    void panel.offsetHeight;
+
+    const listH = listEl.clientHeight;
+    if (!(listH > 8)) return;
+    const n = Math.max(1, listEl.querySelectorAll('.image-tray-item').length || IMAGE_TRAY_MAX);
+    const styles = window.getComputedStyle(listEl);
+    const gap = parseFloat(styles.rowGap || styles.gap || '4') || 4;
+    const slotH = (listH - gap * Math.max(0, n - 1)) / n;
+    if (!(slotH > 4)) return;
+    const slotW = slotH * (4 / 3);
+    const padL = parseFloat(window.getComputedStyle(panel).paddingLeft) || 0;
+    const padR = parseFloat(window.getComputedStyle(panel).paddingRight) || 0;
+    const border = (parseFloat(window.getComputedStyle(panel).borderLeftWidth) || 0)
+      + (parseFloat(window.getComputedStyle(panel).borderRightWidth) || 0);
+    const trayW = Math.ceil(slotW + padL + padR + border);
+    const maxW = Math.min(220, Math.floor((window.innerWidth || 1180) * 0.18));
+    const minW = 100;
+    const w = Math.max(minW, Math.min(maxW, trayW));
+    document.documentElement.style.setProperty('--image-tray-w', w + 'px');
+  }
+  function scheduleImageTrayGeometry() {
+    if (trayGeoRaf) return;
+    trayGeoRaf = requestAnimationFrame(() => {
+      trayGeoRaf = 0;
+      try { syncImageTrayGeometry(); } catch (_) {}
+      /* Zweiter Pass: nach Breitenänderung nochmals Bottom/Höhe abgleichen */
+      requestAnimationFrame(() => {
+        try { syncImageTrayGeometry(); } catch (_) {}
+      });
+    });
+  }
+
   function rebuildImageTrayPanel() {
     const listEl = el.imageTrayList;
     if (!listEl) return;
     const list = ensureImageTray();
     const live = state.liveLeafId === IMAGE_TRAY_CAM_ID;
+    const n = list.length;
+    const slots = Math.max(IMAGE_TRAY_MAX, n); /* Altbestand >7: alle anzeigen, schrumpfen */
     /* Idempotent: Signatur, damit iOS-Taps nicht durch unnötiges DOM-Wipe sterben */
     const sig = list.map((it) => it.id + ':' + ((it.photo && (it.photo.src || it.photo.file)) || '').length).join('|')
       + '|open:' + (state.imageTrayOpen ? 1 : 0)
       + '|live:' + (live ? 1 : 0)
-      + '|full:' + (list.length >= IMAGE_TRAY_MAX ? 1 : 0);
+      + '|slots:' + slots;
     if (listEl.dataset.traySig === sig && !live) return;
     listEl.dataset.traySig = sig;
     listEl.innerHTML = '';
-    if (!list.length) {
-      const empty = document.createElement('div');
-      empty.className = 'image-tray-empty';
-      empty.textContent = 'Noch keine Fotos.\n+ zum Hinzufügen';
-      listEl.appendChild(empty);
+    if (el.imageTrayPanel) {
+      el.imageTrayPanel.classList.toggle('tray-overfull', n > IMAGE_TRAY_MAX);
     }
-    list.forEach((it) => {
+    /* Header bleibt „Fotos“; Fuß-+ aus (Plus liegt im ersten leeren Slot) */
+    const title = el.imageTrayPanel && el.imageTrayPanel.querySelector('.image-tray-title');
+    if (title) title.textContent = 'Fotos';
+    if (el.imageTrayAddBtn) {
+      el.imageTrayAddBtn.hidden = true;
+      const foot = el.imageTrayAddBtn.closest('.image-tray-foot');
+      if (foot) foot.hidden = true;
+    }
+    for (let i = 0; i < slots; i++) {
+      const it = list[i] || null;
       const item = document.createElement('div');
-      item.className = 'image-tray-item';
-      item.dataset.trayId = it.id;
-      const img = document.createElement('img');
-      img.alt = '';
-      img.draggable = false;
-      if (it.photo && it.photo.src) img.src = it.photo.src;
-      item.appendChild(img);
-      const del = document.createElement('button');
-      del.type = 'button';
-      del.className = 'image-tray-item-del cell-cam-seg-btn';
-      del.title = 'Foto löschen';
-      del.setAttribute('aria-label', 'Foto löschen');
-      del.innerHTML = '<svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
-      del.addEventListener('click', (e) => {
-        e.stopPropagation();
-        void confirmDeleteTrayPhoto(it.id);
-      });
-      item.appendChild(del);
-      bindTrayThumbPointer(item, it);
+      item.className = 'image-tray-item' + (it ? '' : ' is-empty');
+      item.dataset.slotIndex = String(i);
+      if (it) {
+        item.dataset.trayId = it.id;
+        const img = document.createElement('img');
+        img.alt = '';
+        img.draggable = false;
+        const applyFit = () => {
+          const nw = img.naturalWidth, nh = img.naturalHeight;
+          if (!(nw > 0 && nh > 0)) return;
+          const r = nw / nh;
+          /* ~4:3 → cover (füllt Slot ohne Letterbox); sonst contain */
+          if (Math.abs(r - 4 / 3) < 0.06) img.classList.remove('tray-fit-contain');
+          else img.classList.add('tray-fit-contain');
+        };
+        img.addEventListener('load', applyFit);
+        if (it.photo && it.photo.src) {
+          img.src = it.photo.src;
+          if (img.complete) applyFit();
+        }
+        item.appendChild(img);
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'image-tray-item-del';
+        del.title = 'Foto löschen';
+        del.setAttribute('aria-label', 'Foto löschen');
+        del.innerHTML = '<svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 5.5l13 13M18.5 5.5l-13 13" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/></svg>';
+        del.addEventListener('click', (e) => {
+          e.stopPropagation();
+          void confirmDeleteTrayPhoto(it.id);
+        });
+        item.appendChild(del);
+        bindTrayThumbPointer(item, it);
+      } else if (n < IMAGE_TRAY_MAX) {
+        /* v2.21: Kamerasymbol in JEDEM leeren Slot → Modal; Foto landet im ersten freien Platz */
+        const cam = document.createElement('button');
+        cam.type = 'button';
+        cam.className = 'image-tray-slot-cam';
+        cam.title = 'Foto aufnehmen';
+        cam.setAttribute('aria-label', 'Foto aufnehmen');
+        cam.innerHTML = '<svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.2 8.4h2.3l1.3-2.1h8.4l1.3 2.1h2.3c.9 0 1.6.7 1.6 1.6v8.4c0 .9-.7 1.6-1.6 1.6H4.2c-.9 0-1.6-.7-1.6-1.6V10c0-.9.7-1.6 1.6-1.6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="13.3" r="3.1" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
+        cam.addEventListener('click', (e) => {
+          e.stopPropagation();
+          startImageTrayCamera();
+        });
+        item.appendChild(cam);
+        item.classList.add('has-cam');
+      }
       listEl.appendChild(item);
-    });
-    if (list.length >= IMAGE_TRAY_MAX) {
-      const full = document.createElement('div');
-      full.className = 'image-tray-full-msg';
-      full.textContent = 'Voll (10/10)';
-      listEl.appendChild(full);
     }
-    if (el.imageTrayAddBtn) el.imageTrayAddBtn.disabled = list.length >= IMAGE_TRAY_MAX && !live;
+    scheduleImageTrayGeometry();
+    requestAnimationFrame(() => scheduleImageTrayGeometry());
   }
 
   let trayDeleteConfirmOpen = false;
@@ -336,7 +453,25 @@
     right.className = 'tray-cam-controls-right';
     right.appendChild(makeCamQualityToggle());
     right.appendChild(makeCamZoomToggle());
-    wrap.appendChild(cancel);
+    /* v2.21: Abbrechen | Fotos (Datei-Picker) | Auslösen | Qualität | Zoom */
+    const fotosBtn = document.createElement('button');
+    fotosBtn.type = 'button';
+    fotosBtn.className = 'btn sm tray-cam-fotos';
+    fotosBtn.textContent = 'Fotos';
+    fotosBtn.title = 'Fotos aus Dateien/Mediathek wählen';
+    fotosBtn.setAttribute('aria-label', 'Fotos wählen');
+    fotosBtn.addEventListener('click', (e) => {
+      if (trackDragDidPageSwipe) return;
+      e.stopPropagation();
+      try { stopLiveCamera(); } catch (_) {}
+      try { closeTrayCamModal(); } catch (_) {}
+      openFilePicker(IMAGE_TRAY_CAM_ID);
+    });
+    const left = document.createElement('div');
+    left.className = 'tray-cam-controls-left';
+    left.appendChild(cancel);
+    left.appendChild(fotosBtn);
+    wrap.appendChild(left);
     wrap.appendChild(row);
     wrap.appendChild(right);
     host.appendChild(wrap);
@@ -345,7 +480,7 @@
 
   function startImageTrayCamera() {
     if (imageTrayIsFull()) {
-      flash('Bildzwischenspeicher voll (max. 10)', 2800, 'error');
+      flash('Bildzwischenspeicher voll (max. 7)', 2800, 'error');
       return;
     }
     if (el.imageTrayAddMenu) el.imageTrayAddMenu.hidden = true;
@@ -360,7 +495,7 @@
     }
     const room = IMAGE_TRAY_MAX - imageTrayCount();
     if (room <= 0) {
-      flash('Bildzwischenspeicher voll (max. 10)', 2800, 'error');
+      flash('Bildzwischenspeicher voll (max. 7)', 2800, 'error');
       return;
     }
     const take = list.slice(0, room);
@@ -397,19 +532,27 @@
     const stack = document.elementsFromPoint(x, y);
     for (const n of stack) {
       if (!n || !n.closest) continue;
-      if (n.closest('.image-tray')) continue;
       if (n.closest('.image-tray-drag-ghost')) continue;
+      /* Leerer Tray-Slot = Dropziel für Zellenfoto */
+      const emptySlot = n.closest('.image-tray-item.is-empty');
+      if (emptySlot && state.imageTrayOpen) {
+        return { kind: 'tray', id: null, el: emptySlot };
+      }
+      if (n.closest('.image-tray')) {
+        /* gefüllter Slot / Leiste: trotzdem Tray-Drop wenn Platz */
+        continue;
+      }
       const leaf = n.closest('.cell-leaf');
       if (leaf && leaf.dataset.leafId) return { kind: 'leaf', id: leaf.dataset.leafId, el: leaf };
       const clip = n.closest('.ann-photo-clipboard-node');
       if (clip && clip.dataset.id) return { kind: 'clipboard', id: clip.dataset.id, el: clip };
     }
-    /* Drop zurück in den offenen Tray (von Zelle) */
     const tray = el.imageTrayPanel;
     if (tray && !tray.hidden && state.imageTrayOpen) {
       const r = tray.getBoundingClientRect();
       if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
-        return { kind: 'tray', id: null, el: tray };
+        const empty = tray.querySelector('.image-tray-item.is-empty');
+        return { kind: 'tray', id: null, el: empty || tray };
       }
     }
     return null;
@@ -459,7 +602,7 @@
 
   function moveHolderPhotoToTray(holderId) {
     if (imageTrayIsFull()) {
-      flash('Bildzwischenspeicher voll (max. 10)', 2800, 'error');
+      flash('Bildzwischenspeicher voll (max. 7)', 2800, 'error');
       return;
     }
     const hit = findPhotoHolderInDoc(holderId);
@@ -548,7 +691,7 @@
     clearTrayDropHighlights();
     const target = trayDropTargetAt(e.clientX, e.clientY);
     trayDrag.lastTarget = target;
-    if (target && target.el && (target.kind === 'leaf' || target.kind === 'clipboard')) {
+    if (target && target.el && (target.kind === 'leaf' || target.kind === 'clipboard' || target.kind === 'tray')) {
       target.el.classList.add('image-tray-drop-target');
     }
     e.preventDefault();
@@ -1735,6 +1878,7 @@
   function toggleVariantBarCollapsed() {
     variantBarCollapsed = !variantBarCollapsed;
     syncVariantBarCollapsedUi();
+    try { scheduleImageTrayGeometry(); } catch (_) {}
   }
 
   function unusedVariantsForSpecialize(page) {
@@ -1797,6 +1941,7 @@
       if (host && host.firstChild) host.innerHTML = '';
       if (host) { host.__variantSig = null; host.__variantOpts = null; }
       bar.classList.remove('is-collapsed');
+      try { scheduleImageTrayGeometry(); } catch (_) {}
       return;
     }
     syncVariantBarCollapsedUi();
@@ -1811,6 +1956,7 @@
     if (!onLayout) {
       setHidden(addBtn, true);
       setHidden(onlyBtn, true);
+      try { scheduleImageTrayGeometry(); } catch (_) {}
       return;
     }
 
@@ -1828,6 +1974,7 @@
 
     setHidden(addBtn, hideAdd);
     setHidden(onlyBtn, pageAlreadyMulti);
+    try { scheduleImageTrayGeometry(); } catch (_) {}
   }
 
   async function onVariantAddClick() {
@@ -2985,7 +3132,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.20';
+  const APP_VERSION = '2.21';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -14600,15 +14747,14 @@
   if (el.imageTrayCloseBtn) {
     el.imageTrayCloseBtn.addEventListener('click', () => setImageTrayOpen(false));
   }
+  /* v2.21: „+“ öffnet direkt die große Kamera-Modal (kein Menü Kamera|Fotos).
+     Datei-Import bleibt über „Fotos“ direkt rechts neben Abbrechen in der Kamera-Leiste. */
   if (el.imageTrayAddBtn) {
     el.imageTrayAddBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (!state.editMode || !state.imageTrayOpen) return;
-      if (imageTrayIsFull()) {
-        flash('Bildzwischenspeicher voll (max. 10)', 2800, 'error');
-        return;
-      }
-      if (el.imageTrayAddMenu) el.imageTrayAddMenu.hidden = !el.imageTrayAddMenu.hidden;
+      if (el.imageTrayAddMenu) el.imageTrayAddMenu.hidden = true;
+      startImageTrayCamera();
     });
   }
   if (el.imageTrayCamBtn) {
@@ -14622,7 +14768,7 @@
       e.stopPropagation();
       if (el.imageTrayAddMenu) el.imageTrayAddMenu.hidden = true;
       if (imageTrayIsFull()) {
-        flash('Bildzwischenspeicher voll (max. 10)', 2800, 'error');
+        flash('Bildzwischenspeicher voll (max. 7)', 2800, 'error');
         return;
       }
       openFilePicker(IMAGE_TRAY_CAM_ID);
@@ -14643,6 +14789,10 @@
       }
     });
   }
+  window.addEventListener('resize', () => { try { scheduleImageTrayGeometry(); } catch (_) {} });
+  window.addEventListener('orientationchange', () => {
+    setTimeout(() => { try { scheduleImageTrayGeometry(); } catch (_) {} }, 120);
+  });
   window.addEventListener('pointermove', onTrayDragMove);
   window.addEventListener('pointerup', onTrayDragUp);
   window.addEventListener('pointercancel', onTrayDragUp);
@@ -14727,7 +14877,7 @@
      auf diesen Buttons (onViewportPointerDown). Zusätzlich: kurzer Tap (< 12 px) auf
      einen Kamera-Button ohne nachfolgenden click → Button nach 450 ms selbst auslösen;
      ein verspäteter echter click wird dann verworfen (kein Doppel-Auslösen). */
-  const CAM_BTN_SEL = '.cell-kamera-wrap .cell-cam-seg-btn, .cell-kamera-wrap .cell-cam-cancel, .cell-kamera-wrap .cell-cam-quality-btn, .cell-kamera-wrap .cell-cam-zoom-btn, .image-tray-item-del, .image-tray-add, .image-tray-close, #imageTrayBtn, #imageTrayCamBtn, #imageTrayFotosBtn, .tray-cam-modal .cell-cam-seg-btn, .tray-cam-modal .cell-cam-cancel, .tray-cam-modal .cell-cam-quality-btn, .tray-cam-modal .cell-cam-zoom-btn';
+  const CAM_BTN_SEL = '.cell-kamera-wrap .cell-cam-seg-btn, .cell-kamera-wrap .cell-cam-cancel, .cell-kamera-wrap .cell-cam-quality-btn, .cell-kamera-wrap .cell-cam-zoom-btn, .image-tray-item-del, .image-tray-add, .image-tray-slot-cam, .image-tray-close, #imageTrayBtn, #imageTrayCamBtn, #imageTrayFotosBtn, .tray-cam-modal .cell-cam-seg-btn, .tray-cam-modal .cell-cam-cancel, .tray-cam-modal .cell-cam-quality-btn, .tray-cam-modal .cell-cam-zoom-btn, .tray-cam-modal .tray-cam-fotos';
   let camTap = null;
   let camClickSeenAt = 0;
   let camSuppressUntil = 0;
@@ -14783,7 +14933,7 @@
     '.beak-pdf-lightbox, .laufzettel-lightbox, .part-photo-lightbox, .tour-overlay, .welcome-screen, ' +
     '.ipad-rotate-overlay, .ann-color-bar, .ann-side-bars, .copy-paste-callout, ' +
     '.image-tray .cell-kamera-wrap, .image-tray-add-menu, .image-tray-close, .image-tray-add, #imageTrayBtn, ' +
-    '.tray-cam-backdrop .cell-kamera-wrap, #trayCamBackdrop .cell-kamera-wrap';
+    '.tray-cam-backdrop .cell-kamera-wrap, #trayCamBackdrop .cell-kamera-wrap, .tray-cam-fotos';
   let liveTap = null;
   let liveTapClickBlockUntil = 0;
   /* v2.16: alle Finger der aktuellen Live-Kamera-Geste (für Pinch-Zoom) */
@@ -15395,6 +15545,7 @@
     updateDateiMenuState();
     try { scheduleViewerChromeCompact(); } catch (_) {}
     try { syncWelcomeInitialsOverlay(); } catch (_) {}
+    try { maybeApplyPendingAppUpdate(); } catch (_) {}
   }
 
   function hideWelcomeScreen() {
@@ -16286,119 +16437,137 @@
   consumeLaunchQueueFiles();
   void consumePendingOpenFromServer();
 
-  /* v1.18 / v2.20: Service Worker + Auto-Update wie Geräte Laufzettel.
-     skipWaiting/clients.claim im SW; hier: reg.update(), controllerchange,
-     stilles Reload nur kurz nach Start ohne Interaktion auf Willkommen,
-     sonst Banner „Update verfügbar / Neu laden“. Vor Reload: Autosave + Kamera stop. */
+  /* v2.21: Auto-Update nur auf dem Startbildschirm (keine Datei offen).
+     Neuer SW installiert und wartet; SKIP_WAITING erst vom Startbildschirm.
+     Kein Banner/Button. Bei offener Datei bleibt der alte Controller aktiv. */
+  let appUpdatePending = false;
+  let appUpdateApplying = false;
+  let appSwReg = null;
+
+  function onStartScreenNoFile() {
+    if (docOpen) return false;
+    const w = el.welcomeScreen || document.getElementById('welcomeScreen');
+    if (!w || w.hidden) return false;
+    try {
+      const cs = window.getComputedStyle(w);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+    } catch (_) {}
+    return true;
+  }
+
+  async function flushBeforeAppUpdateReload() {
+    try { if (state.liveLeafId || state.stream) stopLiveCamera(); } catch (_) {}
+    try { closeTrayCamModal(); } catch (_) {}
+    try {
+      if (docOpen) {
+        store.dirty = true;
+        await persistNow();
+      }
+    } catch (_) {}
+    try { flushStorageOnHide(); } catch (_) {}
+  }
+
+  function tellWaitingSwToActivate(reg) {
+    const w = (reg && reg.waiting) || (appSwReg && appSwReg.waiting);
+    if (!w) return false;
+    try { w.postMessage({ type: 'SKIP_WAITING' }); return true; } catch (_) { return false; }
+  }
+
+  async function applyPendingAppUpdate() {
+    if (appUpdateApplying) return false;
+    if (!onStartScreenNoFile()) return false;
+    let reg = appSwReg;
+    try {
+      if (!reg && navigator.serviceWorker) reg = await navigator.serviceWorker.getRegistration();
+    } catch (_) {}
+    if (!reg) return false;
+    const hasWaiting = !!reg.waiting;
+    if (!hasWaiting && !appUpdatePending) return false;
+    appUpdateApplying = true;
+    appUpdatePending = true;
+    await flushBeforeAppUpdateReload();
+    if (hasWaiting) {
+      tellWaitingSwToActivate(reg);
+      return true;
+    }
+    location.reload();
+    return true;
+  }
+
+  function noteAppUpdateReady(reg) {
+    appUpdatePending = true;
+    if (onStartScreenNoFile()) void applyPendingAppUpdate();
+  }
+
+  function maybeApplyPendingAppUpdate() {
+    try {
+      if (appUpdatePending && onStartScreenNoFile()) void applyPendingAppUpdate();
+    } catch (_) {}
+  }
+
   function registerAppServiceWorker() {
     if (!('serviceWorker' in navigator)) return;
     if (window.location.protocol === 'file:') return;
     const swUrl = new URL('sw.js', document.baseURI || window.location.href).href;
-    let regRef = null;
     const tryUpdate = () => {
-      try { if (regRef) void regRef.update(); } catch (_) {}
+      try { if (appSwReg) void appSwReg.update(); } catch (_) {}
+    };
+    const watchReg = (reg) => {
+      appSwReg = reg;
+      if (reg.waiting && navigator.serviceWorker.controller) noteAppUpdateReady(reg);
+      reg.addEventListener('updatefound', () => {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener('statechange', () => {
+          if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+            noteAppUpdateReady(reg);
+          }
+        });
+      });
     };
     navigator.serviceWorker.register(swUrl).then((reg) => {
-      regRef = reg;
+      watchReg(reg);
       try { reg.update(); } catch (_) {}
     }).catch((err) => {
       console.warn('Service Worker nicht registriert', err);
     });
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') tryUpdate();
+      if (document.visibilityState === 'visible') {
+        tryUpdate();
+        if (appUpdatePending && onStartScreenNoFile()) void applyPendingAppUpdate();
+      }
     });
-    window.addEventListener('focus', tryUpdate);
+    window.addEventListener('focus', () => {
+      tryUpdate();
+      if (appUpdatePending && onStartScreenNoFile()) void applyPendingAppUpdate();
+    });
     setInterval(tryUpdate, 5 * 60 * 1000);
+
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      if (!onStartScreenNoFile() && !appUpdateApplying) {
+        appUpdatePending = true;
+        return;
+      }
+      refreshing = true;
+      void (async () => {
+        try { await flushBeforeAppUpdateReload(); } catch (_) {}
+        location.reload();
+      })();
+    });
+
+    try {
+      window.__anwUpdate = {
+        pending: () => appUpdatePending,
+        onStartScreen: onStartScreenNoFile,
+        apply: () => applyPendingAppUpdate(),
+        forcePending: () => { appUpdatePending = true; },
+        getReg: () => appSwReg,
+      };
+    } catch (_) {}
   }
   registerAppServiceWorker();
-
-  /* v2.20: Update-Hinweis / sicheres Neuladen (portiert von Geräte Laufzettel) */
-  (function setupAppUpdateReload() {
-    try {
-      if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) return;
-      const t0 = Date.now();
-      let pending = false;
-      let acted = false;
-      let bar = null;
-      const mark = () => { acted = true; };
-      ['pointerdown', 'keydown', 'touchstart'].forEach((ev) => {
-        window.addEventListener(ev, mark, { capture: true, passive: true });
-      });
-      const welcomeVisible = () => {
-        const w = document.getElementById('welcomeScreen');
-        if (!w || w.hidden) return false;
-        const cs = window.getComputedStyle(w);
-        return cs.display !== 'none' && cs.visibility !== 'hidden';
-      };
-      /* Sicher: Willkommen ODER Viewer (kein Editor) — nie mit Live-Kamera / Tray-Cam / Overview */
-      const onSafeScreen = () => {
-        if (state.editMode) return false;
-        if (state.liveLeafId || state.stream) return false;
-        if (typeof isTrayCamModalOpen === 'function' && isTrayCamModalOpen()) return false;
-        if (el.overviewBackdrop && !el.overviewBackdrop.hidden) return false;
-        if (el.confirmBackdrop && !el.confirmBackdrop.hidden) return false;
-        /* Willkommen oder geöffnetes Dokument im Viewer */
-        return welcomeVisible() || !!(el.app && !el.app.classList.contains('edit-mode'));
-      };
-      const idleSafe = () => welcomeVisible() && !state.editMode;
-      async function reloadAfterFlush() {
-        try { if (state.liveLeafId || state.stream) stopLiveCamera(); } catch (_) {}
-        try { closeTrayCamModal(); } catch (_) {}
-        try {
-          store.dirty = true;
-          await persistNow();
-        } catch (_) {}
-        try { flushStorageOnHide(); } catch (_) {}
-        location.reload();
-      }
-      const makeBar = () => {
-        bar = document.createElement('div');
-        bar.id = 'update-hint';
-        bar.className = 'update-hint';
-        bar.setAttribute('role', 'status');
-        bar.innerHTML = '<span>Update verfügbar</span><button type="button">Neu laden</button>';
-        bar.querySelector('button').addEventListener('click', () => {
-          if (onSafeScreen()) void reloadAfterFlush();
-          else sync();
-        });
-      };
-      const sync = () => {
-        if (!pending) return;
-        if (!onSafeScreen()) {
-          if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
-          return;
-        }
-        if (!bar) makeBar();
-        if (bar.parentNode !== document.body) document.body.appendChild(bar);
-      };
-      const later = () => setTimeout(sync, 0);
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (pending) return;
-        pending = true;
-        if (!acted && Date.now() - t0 < 20000 && idleSafe()) {
-          void reloadAfterFlush();
-          return;
-        }
-        sync();
-        try {
-          new MutationObserver(later).observe(document.body, {
-            subtree: true, attributes: true, attributeFilter: ['class', 'hidden', 'aria-pressed'],
-          });
-        } catch (_) {}
-        document.addEventListener('click', later, true);
-      });
-      /* Expose for tests */
-      try {
-        window.__anwUpdate = {
-          pending: () => pending,
-          onSafeScreen,
-          sync,
-          forcePending: () => { pending = true; sync(); },
-          reloadAfterFlush,
-        };
-      } catch (_) {}
-    } catch (_) {}
-  })();
 
   /* v1.18: pdf.js Legacy schon beim Start lazy vorladen */
   setTimeout(() => { try { warmupPdfPipeline(); } catch (_) {} }, 1200);

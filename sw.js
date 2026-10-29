@@ -1,12 +1,12 @@
 /* Anweisungen – Service Worker (App-Shell Offline-Cache). Keine .beak-Projekte cachen.
-   v2.20: Update-Verhalten wie Geräte Laufzettel – skipWaiting + clients.claim,
-   Netzwerk-zuerst für Navigation / sw.js / Code (JS/CSS), Cache-zuerst für Icons/Fonts. */
-const CACHE = 'anweisungen-shell-v2.20';
+   v2.21: Neuer SW wartet auf SKIP_WAITING vom Client (nur Startbildschirm ohne offene Datei).
+   Solange eine Datei offen ist, bleibt der alte SW Controller – kein Asset-Bruch. */
+const CACHE = 'anweisungen-shell-v2.21';
 const SHELL = [
   './',
   './index.html',
-  './styles.css?v=2.20',
-  './app.js?v=2.20',
+  './styles.css?v=2.21',
+  './app.js?v=2.21',
   './manifest.webmanifest',
   './favicon.svg',
   './favicon.png',
@@ -70,9 +70,16 @@ self.addEventListener('install', (event) => {
           } catch (_) {}
         })
       );
-      await self.skipWaiting();
+      /* v2.21: kein skipWaiting hier – Client sendet SKIP_WAITING erst auf dem Startbildschirm */
     })()
   );
+});
+
+self.addEventListener('message', (event) => {
+  const data = event && event.data;
+  if (data && data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('activate', (event) => {
@@ -91,7 +98,6 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   if (isProjectLike(url)) return;
 
-  /* Navigation + SW-Skript: Netzwerk zuerst (HTML-Shell offline als Fallback) */
   if (isNavigationRequest(req) || isServiceWorkerScript(url)) {
     event.respondWith(
       fetch(req)
@@ -116,7 +122,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  /* Code (JS/CSS/manifest): Netzwerk mit no-cache, Cache als Offline-Fallback */
   if (isCodeAsset(url)) {
     event.respondWith(
       fetch(req, { cache: 'no-cache' })
@@ -132,7 +137,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  /* Icons/Fonts/übrige Assets: Cache zuerst */
   event.respondWith(
     matchCache(req).then((cached) => {
       if (cached) return cached;

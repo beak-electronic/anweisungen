@@ -2,7 +2,14 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.20
+**Version:** 2.21
+
+## Neu in 2.21
+
+- **Automatische Aktualisierung nur auf dem Startbildschirm:** Ein neues App-Update wird still angewendet, **nur** wenn der Willkommens-/Startbildschirm sichtbar ist und **keine** Datei/kein Projekt offen ist (kein Button „Neu laden“). Ist eine Datei offen (Viewer oder Editor), wird nur im Hintergrund geprüft und vorgemerkt – **kein** Hinweis, **kein** Neuladen. Der neue Service Worker übernimmt erst nach `SKIP_WAITING` vom Startbildschirm; bis dahin bleibt der alte Controller aktiv (Vendor/PDF-Assets der laufenden Sitzung bleiben erreichbar). Nach dem Schließen der Datei → Startbildschirm → Update wird automatisch angewendet (Autosave/Stream vorher sauber beendet).
+- **Fotos-Leiste – 7 feste Plätze:** Die rechte Leiste endet oberhalb der Variantenleiste (falls sichtbar) und zeigt immer **7** gleich große Slots im **4:3-Querformat** (ohne Scrollen; die Leiste wird dafür etwas breiter). Belegte Slots mit Foto + kleinem roten × (ohne Hintergrund). Leere Slots sind weiß und zeigen zentriert ein **Kamerasymbol** (wie der Kamera-Button der Zellen); Tippen auf einen leeren Slot öffnet die Kamera-Modal, das Foto landet im ersten freien Platz. Bei 7 Fotos keine Kamera-Icons mehr. Fotos rutschen nach oben zusammen. Leere Slots sind Dropziele. Alte Projekte mit 8–10 Fotos behalten alle Einträge (Slots schrumpfen mit).
+- **„+“ ohne Menü:** Kein Kamera|Fotos-Chooser mehr. Datei-Import über **Fotos** direkt rechts neben **Abbrechen** in der Kamera-Fußleiste (Mehrfachauswahl, Limit 7, Stream stoppt).
+- **Service Worker:** Cache `anweisungen-shell-v2.21` und `?v=2.21`.
 
 ## Neu in 2.20
 
