@@ -5306,22 +5306,136 @@ html.orient-portrait.app-h-fixed .page-viewport {
 }
 .image-tray-add-menu[hidden] { display: none !important; }
 .image-tray-add-menu .btn { width: 100%; justify-content: center; }
-.image-tray-live {
-  position: absolute; inset: 0;
-  background: #0a0c10;
-  border-radius: 12px;
-  z-index: 4;
-  display: flex; flex-direction: column; align-items: stretch;
+/* v2.20: Tray-Kamera als großes Modal (nicht mehr in der Leiste) */
+.tray-cam-backdrop {
+  z-index: 120;
+  padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
+}
+.tray-cam-backdrop[hidden] { display: none !important; }
+.tray-cam-modal {
+  width: min(1100px, 90vw);
+  height: min(820px, 88vh);
+  max-width: 90vw;
+  max-height: 88vh;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+  background: #0e1116;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.55);
 }
-.image-tray-live[hidden] { display: none !important; }
-.image-tray-live video.cell-live-video {
-  flex: 1 1 auto; width: 100%; min-height: 0;
-  object-fit: cover; background: #000;
+.tray-cam-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  background: #000;
+  /* Video füllt alles; Controls liegen als Overlay unten */
 }
-.image-tray-live .cell-kamera-wrap {
-  flex: 0 0 auto; position: relative;
-  padding: 6px; background: rgba(20,22,28,0.95);
+.tray-cam-stage video.cell-live-video,
+.tray-cam-stage video.tray-cam-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+  touch-action: none;
+  /* Override .cell-live-video { display:none } (nur in Zellen bei .live-camera sichtbar) */
+  display: block !important;
+  pointer-events: none; /* Tippen geht an die Stage; Live-Tap-Handler fängt Auslösen */
+  z-index: 1;
+}
+/* Override der zellen-zentrierten .cell-kamera-wrap-Position */
+.tray-cam-stage .cell-kamera-wrap.tray-cam-controls,
+.app.edit-mode .tray-cam-stage .cell-kamera-wrap.tray-cam-controls {
+  display: flex;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: auto;
+  bottom: 0;
+  transform: none;
+  z-index: 6;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: rgba(14, 17, 22, 0.72);
+  border-top: 1px solid rgba(255,255,255,0.10);
+  box-sizing: border-box;
+  pointer-events: auto;
+}
+.tray-cam-controls-right {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+.tray-cam-stage .tray-cam-controls .btn.sm.cell-cam-cancel {
+  flex: 0 0 auto;
+  margin: 0;
+  color: var(--text, #e8eaed);
+  background: rgba(34, 40, 51, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  min-height: 36px;
+  padding: 6px 12px;
+}
+.tray-cam-stage .tray-cam-controls .btn.sm.cell-cam-cancel:hover,
+.tray-cam-stage .tray-cam-controls .btn.sm.cell-cam-cancel:focus-visible {
+  border-color: rgba(255, 255, 255, 0.4);
+  background: rgba(42, 51, 68, 0.95);
+  outline: none;
+}
+.tray-cam-stage .tray-cam-controls .cell-cam-seg.live {
+  flex: 0 0 auto;
+}
+.tray-cam-stage .tray-cam-controls .cell-cam-quality,
+.tray-cam-stage .tray-cam-controls .cell-cam-zoom {
+  /* in der Fußleiste kompakt halten */
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+/* v2.20: Update-Hinweis (wie Geräte Laufzettel) */
+.update-hint {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px 8px 14px;
+  border-radius: 12px;
+  background: #1c1c1e;
+  color: #fff;
+  font-size: 14px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255,255,255,0.12);
+}
+.update-hint button {
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 12px;
+  background: var(--accent, #dd007a);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.update-hint button:hover,
+.update-hint button:focus-visible {
+  filter: brightness(1.08);
 }
 .image-tray-empty {
   font-size: 11px; color: #9a9aa0; text-align: center;

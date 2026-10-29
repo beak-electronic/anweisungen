@@ -24,7 +24,7 @@
   <link rel="apple-touch-icon" sizes="152x152" href="apple-touch-icon-152.png" />
   <link rel="apple-touch-icon" sizes="120x120" href="apple-touch-icon-120.png" />
   <title>Anweisungen</title>
-  <link rel="stylesheet" href="styles.css?v=2.19" />
+  <link rel="stylesheet" href="styles.css?v=2.20" />
 </head>
 <body>
   <script>
@@ -121,7 +121,7 @@
     <!-- v2.19: Bildzwischenspeicher (Editor) – Panel von rechts -->
     <aside class="image-tray" id="imageTrayPanel" hidden aria-label="Bildzwischenspeicher">
       <div class="image-tray-head">
-        <span class="image-tray-title">Bilder</span>
+        <span class="image-tray-title">Fotos</span>
         <button type="button" class="btn sm icon-btn image-tray-close" id="imageTrayCloseBtn" title="Schließen" aria-label="Bildzwischenspeicher schließen"><svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></button>
       </div>
       <div class="image-tray-list" id="imageTrayList"></div>
@@ -132,7 +132,6 @@
         <button type="button" class="btn sm cell-cam-seg-btn" id="imageTrayCamBtn">Kamera</button>
         <button type="button" class="btn sm cell-cam-seg-btn" id="imageTrayFotosBtn">Fotos</button>
       </div>
-      <div class="image-tray-live" id="imageTrayLive" hidden></div>
     </aside>
 
 
@@ -306,6 +305,16 @@
     </div>
   </div>
 
+
+  <!-- v2.20: Bildzwischenspeicher – große Kamera-Modal -->
+  <div class="modal-backdrop tray-cam-backdrop" id="trayCamBackdrop" hidden>
+    <div class="modal tray-cam-modal" id="trayCamModal" role="dialog" aria-modal="true" aria-label="Kamera">
+      <div class="tray-cam-stage" id="trayCamStage">
+        <!-- video + controls injected by app.js -->
+      </div>
+    </div>
+  </div>
+
   <div class="modal-backdrop" id="confirmBackdrop" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmMessage">
       <p class="modal-message" id="confirmMessage">Seite wirklich löschen?</p>
@@ -407,6 +416,6 @@
 
   <script src="vendor/jszip.min.js"></script>
   <script src="vendor/pdf-lib.min.js"></script>
-  <script src="app.js?v=2.19"></script>
+  <script src="app.js?v=2.20"></script>
 </body>
 </html>

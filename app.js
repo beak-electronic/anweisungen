@@ -122,10 +122,7 @@
     }
     if (!want && state.liveLeafId === IMAGE_TRAY_CAM_ID) {
       stopLiveCamera();
-      if (el.imageTrayLive) {
-        el.imageTrayLive.hidden = true;
-        el.imageTrayLive.innerHTML = '';
-      }
+      try { closeTrayCamModal(); } catch (_) {}
     }
     try { scheduleAnnColorBar(); } catch (_) {}
     if (want) rebuildImageTrayPanel();
@@ -233,7 +230,7 @@
     if (!list.length) {
       const empty = document.createElement('div');
       empty.className = 'image-tray-empty';
-      empty.textContent = 'Noch keine Bilder.\n+ zum Hinzufügen';
+      empty.textContent = 'Noch keine Fotos.\n+ zum Hinzufügen';
       listEl.appendChild(empty);
     }
     list.forEach((it) => {
@@ -283,20 +280,44 @@
     try { flash('Foto gelöscht', 1600); } catch (_) {}
   }
 
+  /* v2.20: große Kamera-Modal für den Bildzwischenspeicher (nicht mehr in der Leiste) */
+  function isTrayCamModalOpen() {
+    return !!(el.trayCamBackdrop && !el.trayCamBackdrop.hidden);
+  }
+  function closeTrayCamModal() {
+    if (el.trayCamBackdrop) el.trayCamBackdrop.hidden = true;
+    if (el.trayCamStage) el.trayCamStage.innerHTML = '';
+  }
+  function openTrayCamModalShell() {
+    if (!el.trayCamBackdrop || !el.trayCamStage) return null;
+    el.trayCamBackdrop.hidden = false;
+    el.trayCamStage.innerHTML = '';
+    return el.trayCamStage;
+  }
   function buildTrayLiveUi() {
-    const host = el.imageTrayLive;
+    const host = openTrayCamModalShell();
     if (!host) return null;
-    host.hidden = false;
-    host.innerHTML = '';
     const video = document.createElement('video');
-    video.className = 'cell-live-video';
+    video.className = 'cell-live-video tray-cam-video';
     video.setAttribute('playsinline', '');
     video.setAttribute('webkit-playsinline', '');
     video.muted = true;
     video.autoplay = true;
     host.appendChild(video);
+    /* v2.20: kompakte Fußleiste – Video füllt das Modal; Leiste unten (nicht Mitte) */
     const wrap = document.createElement('div');
-    wrap.className = 'cell-kamera-wrap';
+    wrap.className = 'cell-kamera-wrap tray-cam-controls';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn sm cell-cam-cancel';
+    cancel.textContent = 'Abbrechen';
+    cancel.addEventListener('click', (e) => {
+      if (trackDragDidPageSwipe) return;
+      e.stopPropagation();
+      stopLiveCamera();
+      rebuildImageTrayPanel();
+      renderAll();
+    });
     const row = document.createElement('div');
     row.className = 'cell-cam-seg live';
     row.setAttribute('role', 'group');
@@ -310,34 +331,14 @@
       e.stopPropagation();
       captureStill();
     });
-    const fotos = document.createElement('button');
-    fotos.type = 'button';
-    fotos.className = 'cell-cam-seg-btn cell-fotos';
-    fotos.textContent = 'Fotos';
-    fotos.addEventListener('click', (e) => {
-      if (trackDragDidPageSwipe) return;
-      e.stopPropagation();
-      openFilePicker(IMAGE_TRAY_CAM_ID);
-    });
-    const cancel = document.createElement('button');
-    cancel.type = 'button';
-    cancel.className = 'cell-cam-cancel';
-    cancel.textContent = 'Abbrechen';
-    cancel.addEventListener('click', (e) => {
-      if (trackDragDidPageSwipe) return;
-      e.stopPropagation();
-      stopLiveCamera();
-      host.hidden = true;
-      host.innerHTML = '';
-      rebuildImageTrayPanel();
-      renderAll();
-    });
     row.appendChild(shoot);
-    row.appendChild(fotos);
-    wrap.appendChild(row);
+    const right = document.createElement('div');
+    right.className = 'tray-cam-controls-right';
+    right.appendChild(makeCamQualityToggle());
+    right.appendChild(makeCamZoomToggle());
     wrap.appendChild(cancel);
-    wrap.appendChild(makeCamQualityToggle());
-    wrap.appendChild(makeCamZoomToggle());
+    wrap.appendChild(row);
+    wrap.appendChild(right);
     host.appendChild(wrap);
     return video;
   }
@@ -2309,7 +2310,9 @@
     imageTrayAddMenu: document.getElementById('imageTrayAddMenu'),
     imageTrayCamBtn: document.getElementById('imageTrayCamBtn'),
     imageTrayFotosBtn: document.getElementById('imageTrayFotosBtn'),
-    imageTrayLive: document.getElementById('imageTrayLive'),
+    trayCamBackdrop: document.getElementById('trayCamBackdrop'),
+    trayCamModal: document.getElementById('trayCamModal'),
+    trayCamStage: document.getElementById('trayCamStage'),
     pageIndicator: document.getElementById('pageIndicator'),
     drawer: document.getElementById('drawer'),
     menuBackdrop: document.getElementById('menuBackdrop'),
@@ -2982,7 +2985,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.19';
+  const APP_VERSION = '2.20';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -5197,6 +5200,9 @@
   function isPageDragBlocked(target) {
     if (photoGesture) return true;
     if (trayDrag) return true;
+    /* v2.20: Tray-Kamera-Modal – kein Seiten-Wischen dahinter */
+    if (isTrayCamModalOpen()) return true;
+    if (target.closest && target.closest('.tray-cam-backdrop')) return true;
     /* v2.19: Interaktion im Bildzwischenspeicher – kein Seiten-Wischen */
     if (target.closest && target.closest('.image-tray')) return true;
     /* v1.44: Kamera/Fotos liegen in .cell-leaf — Geste dort darf Seiten-Wischen
@@ -9315,10 +9321,7 @@
     /* v2.19: Kamera/Import gezielt in den Bildzwischenspeicher */
     if (leafId === IMAGE_TRAY_CAM_ID) {
       if (!dataUrl) return;
-      if (el.imageTrayLive) {
-        el.imageTrayLive.hidden = true;
-        el.imageTrayLive.innerHTML = '';
-      }
+      try { closeTrayCamModal(); } catch (_) {}
       addPhotoToImageTray({ src: dataUrl });
       if (!state.imageTrayOpen) setImageTrayOpen(true);
       else rebuildImageTrayPanel();
@@ -9386,9 +9389,8 @@
     const wasTray = state.liveLeafId === IMAGE_TRAY_CAM_ID;
     stopStreamTracks();
     state.liveLeafId = null;
-    if (wasTray && el.imageTrayLive) {
-      el.imageTrayLive.hidden = true;
-      el.imageTrayLive.innerHTML = '';
+    if (wasTray) {
+      try { closeTrayCamModal(); } catch (_) {}
     }
   }
 
@@ -14626,6 +14628,21 @@
       openFilePicker(IMAGE_TRAY_CAM_ID);
     });
   }
+  if (el.trayCamBackdrop) {
+    el.trayCamBackdrop.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+    }, true);
+    el.trayCamBackdrop.addEventListener('click', (e) => {
+      if (e.target !== el.trayCamBackdrop) return;
+      if (state.liveLeafId === IMAGE_TRAY_CAM_ID) {
+        stopLiveCamera();
+        rebuildImageTrayPanel();
+        renderAll();
+      } else {
+        closeTrayCamModal();
+      }
+    });
+  }
   window.addEventListener('pointermove', onTrayDragMove);
   window.addEventListener('pointerup', onTrayDragUp);
   window.addEventListener('pointercancel', onTrayDragUp);
@@ -14634,7 +14651,7 @@
     let panelSwipe = null;
     el.imageTrayPanel.addEventListener('pointerdown', (e) => {
       if (!state.imageTrayOpen) return;
-      if (e.target.closest && (e.target.closest('.image-tray-item') || e.target.closest('.image-tray-live') || e.target.closest('button'))) return;
+      if (e.target.closest && (e.target.closest('.image-tray-item') || e.target.closest('button'))) return;
       panelSwipe = { id: e.pointerId, x: e.clientX, y: e.clientY };
     });
     el.imageTrayPanel.addEventListener('pointermove', (e) => {
@@ -14710,7 +14727,7 @@
      auf diesen Buttons (onViewportPointerDown). Zusätzlich: kurzer Tap (< 12 px) auf
      einen Kamera-Button ohne nachfolgenden click → Button nach 450 ms selbst auslösen;
      ein verspäteter echter click wird dann verworfen (kein Doppel-Auslösen). */
-  const CAM_BTN_SEL = '.cell-kamera-wrap .cell-cam-seg-btn, .cell-kamera-wrap .cell-cam-cancel, .cell-kamera-wrap .cell-cam-quality-btn, .cell-kamera-wrap .cell-cam-zoom-btn, .image-tray-item-del, .image-tray-add, .image-tray-close, #imageTrayBtn, #imageTrayCamBtn, #imageTrayFotosBtn';
+  const CAM_BTN_SEL = '.cell-kamera-wrap .cell-cam-seg-btn, .cell-kamera-wrap .cell-cam-cancel, .cell-kamera-wrap .cell-cam-quality-btn, .cell-kamera-wrap .cell-cam-zoom-btn, .image-tray-item-del, .image-tray-add, .image-tray-close, #imageTrayBtn, #imageTrayCamBtn, #imageTrayFotosBtn, .tray-cam-modal .cell-cam-seg-btn, .tray-cam-modal .cell-cam-cancel, .tray-cam-modal .cell-cam-quality-btn, .tray-cam-modal .cell-cam-zoom-btn';
   let camTap = null;
   let camClickSeenAt = 0;
   let camSuppressUntil = 0;
@@ -14765,14 +14782,21 @@
     '[role="dialog"], [role="alertdialog"], .modal-backdrop, .modal, .overview-backdrop, ' +
     '.beak-pdf-lightbox, .laufzettel-lightbox, .part-photo-lightbox, .tour-overlay, .welcome-screen, ' +
     '.ipad-rotate-overlay, .ann-color-bar, .ann-side-bars, .copy-paste-callout, ' +
-    '.image-tray .cell-kamera-wrap, .image-tray-add-menu, .image-tray-close, .image-tray-add, #imageTrayBtn';
+    '.image-tray .cell-kamera-wrap, .image-tray-add-menu, .image-tray-close, .image-tray-add, #imageTrayBtn, ' +
+    '.tray-cam-backdrop .cell-kamera-wrap, #trayCamBackdrop .cell-kamera-wrap';
   let liveTap = null;
   let liveTapClickBlockUntil = 0;
   /* v2.16: alle Finger der aktuellen Live-Kamera-Geste (für Pinch-Zoom) */
   const livePtrs = new Map();
   let livePinch = null;
   function isLiveTapExempt(t) {
-    return !t || !t.closest || !!t.closest(LIVE_TAP_EXEMPT_SEL);
+    if (!t || !t.closest) return true;
+    /* v2.20: Im Tray-Kamera-Modal Tippen auf das Bild = Auslösen; nur Controls ausnehmen.
+       role=dialog wäre sonst komplett exempt und würde Tippen blockieren. */
+    if (state.liveLeafId === IMAGE_TRAY_CAM_ID && t.closest('#trayCamBackdrop, .tray-cam-modal, .tray-cam-stage')) {
+      return !!t.closest('.cell-kamera-wrap');
+    }
+    return !!t.closest(LIVE_TAP_EXEMPT_SEL);
   }
   function livePinchDist() {
     const pts = Array.from(livePtrs.values());
@@ -16262,16 +16286,119 @@
   consumeLaunchQueueFiles();
   void consumePendingOpenFromServer();
 
-  /* v1.18: Service Worker für Offline-App-Shell (nicht für .beak-Projekte) */
+  /* v1.18 / v2.20: Service Worker + Auto-Update wie Geräte Laufzettel.
+     skipWaiting/clients.claim im SW; hier: reg.update(), controllerchange,
+     stilles Reload nur kurz nach Start ohne Interaktion auf Willkommen,
+     sonst Banner „Update verfügbar / Neu laden“. Vor Reload: Autosave + Kamera stop. */
   function registerAppServiceWorker() {
     if (!('serviceWorker' in navigator)) return;
     if (window.location.protocol === 'file:') return;
-    const swUrl = new URL('sw.js?v=' + APP_VERSION, document.baseURI || window.location.href).href;
-    navigator.serviceWorker.register(swUrl).catch((err) => {
+    const swUrl = new URL('sw.js', document.baseURI || window.location.href).href;
+    let regRef = null;
+    const tryUpdate = () => {
+      try { if (regRef) void regRef.update(); } catch (_) {}
+    };
+    navigator.serviceWorker.register(swUrl).then((reg) => {
+      regRef = reg;
+      try { reg.update(); } catch (_) {}
+    }).catch((err) => {
       console.warn('Service Worker nicht registriert', err);
     });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') tryUpdate();
+    });
+    window.addEventListener('focus', tryUpdate);
+    setInterval(tryUpdate, 5 * 60 * 1000);
   }
   registerAppServiceWorker();
+
+  /* v2.20: Update-Hinweis / sicheres Neuladen (portiert von Geräte Laufzettel) */
+  (function setupAppUpdateReload() {
+    try {
+      if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) return;
+      const t0 = Date.now();
+      let pending = false;
+      let acted = false;
+      let bar = null;
+      const mark = () => { acted = true; };
+      ['pointerdown', 'keydown', 'touchstart'].forEach((ev) => {
+        window.addEventListener(ev, mark, { capture: true, passive: true });
+      });
+      const welcomeVisible = () => {
+        const w = document.getElementById('welcomeScreen');
+        if (!w || w.hidden) return false;
+        const cs = window.getComputedStyle(w);
+        return cs.display !== 'none' && cs.visibility !== 'hidden';
+      };
+      /* Sicher: Willkommen ODER Viewer (kein Editor) — nie mit Live-Kamera / Tray-Cam / Overview */
+      const onSafeScreen = () => {
+        if (state.editMode) return false;
+        if (state.liveLeafId || state.stream) return false;
+        if (typeof isTrayCamModalOpen === 'function' && isTrayCamModalOpen()) return false;
+        if (el.overviewBackdrop && !el.overviewBackdrop.hidden) return false;
+        if (el.confirmBackdrop && !el.confirmBackdrop.hidden) return false;
+        /* Willkommen oder geöffnetes Dokument im Viewer */
+        return welcomeVisible() || !!(el.app && !el.app.classList.contains('edit-mode'));
+      };
+      const idleSafe = () => welcomeVisible() && !state.editMode;
+      async function reloadAfterFlush() {
+        try { if (state.liveLeafId || state.stream) stopLiveCamera(); } catch (_) {}
+        try { closeTrayCamModal(); } catch (_) {}
+        try {
+          store.dirty = true;
+          await persistNow();
+        } catch (_) {}
+        try { flushStorageOnHide(); } catch (_) {}
+        location.reload();
+      }
+      const makeBar = () => {
+        bar = document.createElement('div');
+        bar.id = 'update-hint';
+        bar.className = 'update-hint';
+        bar.setAttribute('role', 'status');
+        bar.innerHTML = '<span>Update verfügbar</span><button type="button">Neu laden</button>';
+        bar.querySelector('button').addEventListener('click', () => {
+          if (onSafeScreen()) void reloadAfterFlush();
+          else sync();
+        });
+      };
+      const sync = () => {
+        if (!pending) return;
+        if (!onSafeScreen()) {
+          if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
+          return;
+        }
+        if (!bar) makeBar();
+        if (bar.parentNode !== document.body) document.body.appendChild(bar);
+      };
+      const later = () => setTimeout(sync, 0);
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (pending) return;
+        pending = true;
+        if (!acted && Date.now() - t0 < 20000 && idleSafe()) {
+          void reloadAfterFlush();
+          return;
+        }
+        sync();
+        try {
+          new MutationObserver(later).observe(document.body, {
+            subtree: true, attributes: true, attributeFilter: ['class', 'hidden', 'aria-pressed'],
+          });
+        } catch (_) {}
+        document.addEventListener('click', later, true);
+      });
+      /* Expose for tests */
+      try {
+        window.__anwUpdate = {
+          pending: () => pending,
+          onSafeScreen,
+          sync,
+          forcePending: () => { pending = true; sync(); },
+          reloadAfterFlush,
+        };
+      } catch (_) {}
+    } catch (_) {}
+  })();
 
   /* v1.18: pdf.js Legacy schon beim Start lazy vorladen */
   setTimeout(() => { try { warmupPdfPipeline(); } catch (_) {} }, 1200);

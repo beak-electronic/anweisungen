@@ -1,10 +1,12 @@
-/* Anweisungen – Service Worker (App-Shell Offline-Cache). Keine .beak-Projekte cachen. */
-const CACHE = 'anweisungen-shell-v2.19';
+/* Anweisungen – Service Worker (App-Shell Offline-Cache). Keine .beak-Projekte cachen.
+   v2.20: Update-Verhalten wie Geräte Laufzettel – skipWaiting + clients.claim,
+   Netzwerk-zuerst für Navigation / sw.js / Code (JS/CSS), Cache-zuerst für Icons/Fonts. */
+const CACHE = 'anweisungen-shell-v2.20';
 const SHELL = [
   './',
   './index.html',
-  './styles.css?v=2.19',
-  './app.js?v=2.19',
+  './styles.css?v=2.20',
+  './app.js?v=2.20',
   './manifest.webmanifest',
   './favicon.svg',
   './favicon.png',
@@ -29,13 +31,47 @@ const SHELL = [
   './vendor/pdf.worker.legacy.iife.js?v=2.03',
 ];
 
+function isNavigationRequest(request) {
+  if (request.mode === 'navigate') return true;
+  if (request.destination === 'document') return true;
+  if (request.destination && request.destination !== '') return false;
+  const accept = request.headers.get('accept') || '';
+  return accept.includes('text/html');
+}
+
+function isServiceWorkerScript(url) {
+  return /\/sw\.js$/i.test(url.pathname || '');
+}
+
+function isCodeAsset(url) {
+  return /\.(m?js|css|webmanifest)$/i.test(url.pathname || '');
+}
+
+function isProjectLike(url) {
+  const u = (url.pathname || '').toLowerCase();
+  return u.endsWith('.beak') || u.endsWith('.plan') || u.endsWith('.beakplan') ||
+    u.includes('project.json') || u.includes('/photos/');
+}
+
+function matchCache(request) {
+  return caches.match(request, { ignoreSearch: true });
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) =>
-      Promise.all(
-        SHELL.map((url) => cache.add(url).catch(() => null))
-      )
-    ).then(() => self.skipWaiting())
+    (async () => {
+      const cache = await caches.open(CACHE);
+      await Promise.all(
+        SHELL.map(async (url) => {
+          try {
+            const res = await fetch(url, { cache: 'reload' });
+            if (!res.ok) return;
+            await cache.put(url, res);
+          } catch (_) {}
+        })
+      );
+      await self.skipWaiting();
+    })()
   );
 });
 
@@ -47,29 +83,66 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-function isProjectLike(url) {
-  const u = url.pathname.toLowerCase();
-  return u.endsWith('.beak') || u.endsWith('.plan') || u.endsWith('.beakplan') ||
-    u.includes('project.json') || u.includes('/photos/');
-}
-
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
-  const url = new URL(req.url);
+  let url;
+  try { url = new URL(req.url); } catch (_) { return; }
   if (url.origin !== self.location.origin) return;
   if (isProjectLike(url)) return;
 
+  /* Navigation + SW-Skript: Netzwerk zuerst (HTML-Shell offline als Fallback) */
+  if (isNavigationRequest(req) || isServiceWorkerScript(url)) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res.ok && isNavigationRequest(req)) {
+            const clone = res.clone();
+            caches.open(CACHE).then((cache) => {
+              cache.put('./index.html', clone);
+              cache.put('./', clone.clone());
+            }).catch(() => {});
+          }
+          return res;
+        })
+        .catch(async () => {
+          if (isNavigationRequest(req)) {
+            const shell = (await matchCache('./index.html')) || (await matchCache('./'));
+            if (shell) return shell;
+          }
+          return new Response('', { status: 503, statusText: 'Offline' });
+        })
+    );
+    return;
+  }
+
+  /* Code (JS/CSS/manifest): Netzwerk mit no-cache, Cache als Offline-Fallback */
+  if (isCodeAsset(url)) {
+    event.respondWith(
+      fetch(req, { cache: 'no-cache' })
+        .then((res) => {
+          if (res.ok) {
+            const clone = res.clone();
+            caches.open(CACHE).then((cache) => cache.put(req, clone)).catch(() => {});
+          }
+          return res;
+        })
+        .catch(async () => (await matchCache(req)) || new Response('', { status: 503, statusText: 'Offline' }))
+    );
+    return;
+  }
+
+  /* Icons/Fonts/übrige Assets: Cache zuerst */
   event.respondWith(
-    caches.match(req).then((cached) => {
-      const network = fetch(req).then((res) => {
+    matchCache(req).then((cached) => {
+      if (cached) return cached;
+      return fetch(req).then((res) => {
         if (res && res.ok && res.type === 'basic') {
           const copy = res.clone();
           caches.open(CACHE).then((cache) => cache.put(req, copy)).catch(() => {});
         }
         return res;
-      }).catch(() => cached);
-      return cached || network;
+      }).catch(() => new Response('', { status: 503, statusText: 'Offline' }));
     })
   );
 });

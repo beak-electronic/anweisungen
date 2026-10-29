@@ -2,7 +2,14 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.19
+**Version:** 2.20
+
+## Neu in 2.20
+
+- **Bildzwischenspeicher – Leistentitel „Fotos“:** Die rechte Ablage heißt in der UI jetzt **Fotos** (Überschrift und Leer-Hinweis), nicht mehr „Bilder“. Interne IDs unverändert.
+- **Automatische App-Aktualisierung:** Wie beim Geräte Laufzettel: neuer Service Worker übernimmt per `skipWaiting`/`clients.claim`; Netzwerk-zuerst für HTML/JS/CSS/`sw.js`. Beim `controllerchange` stilles Neuladen nur kurz nach Start ohne Interaktion auf dem Willkommensbildschirm, sonst Hinweis „Update verfügbar / Neu laden“ – nicht mitten im Editor mit offener Kamera. Vor dem Neuladen: Autosave flush + Kamera stoppen. Zusätzlich `reg.update()` beim Start sowie bei Sichtbarkeit/Fokus.
+- **Bildzwischenspeicher – Kamera-Fenster:** „+“ → **Kamera** öffnet ein großes Modal in der App-Mitte (ca. 85 % Viewport, dunkler Hintergrund, abgerundet wie die anderen Dialoge) statt der kleinen Live-Vorschau in der rechten Leiste. Darin wie gewohnt: **Auslösen**, **Abbrechen**, **Komprimiert** | **Bessere Qualität** (Standard bei jedem Öffnen: Komprimiert), Zoom 1×/2×/3× inkl. Pinch, Tippen auf das Kamerabild löst aus (Tippen auf die Bedienelemente nicht). Wischen hinter dem Fenster blättert keine Seiten. Das Foto landet im Zwischenspeicher (max. 10). Abbrechen / nach dem Auslösen stoppt den Stream sauber; die Ablage bleibt offen. Hochkant-Overlay am iPad beendet die Kamera wie bisher. Die Kamera in normalen Fotozellen ist unverändert.
+- **Service Worker:** Cache `anweisungen-shell-v2.20` und `?v=2.20`.
 
 ## Neu in 2.19
 
