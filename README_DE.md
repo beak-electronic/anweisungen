@@ -2,7 +2,19 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.18
+**Version:** 2.19
+
+## Neu in 2.19
+
+- **Bildzwischenspeicher (Editor):** Am rechten Rand öffnet ein Wischen, das am Display-Rand startet (ca. 24 px), sowie ein neuer Button in der linken Foto-Gruppe (Filmstreifen-Icon) ein Panel mit max. **10** Vorschaubildern. Geschlossen wird per Button, Schließen-✕, Wischen nach rechts oder mit **Fertig**. Die rechte Optionsleiste (Farben/Pfeilarten) wird ausgeblendet, solange der Speicher offen ist; Optik wie die linke Werkzeugleiste (halbtransparent dunkelgrau, ohne Blur).
+- **Befüllen:** „+“ → **Kamera** (bestehender Live-Flow inkl. Qualität/Zoom/Tipp-Auslösen) oder **Fotos** (Mehrfachauswahl, `prepareImportedPhoto` 1500 px). Volle Ablage: klare Meldung, nur bis zum Limit. Ziehen eines Fotos aus einer Zelle/Fotozwischenspeicher-Box in den offenen Speicher leert die Zelle.
+- **Herausziehen:** Thumbnail auf eine Fotofeld-Zelle oder Fotozwischenspeicher-Box legen (Vorschau folgt dem Finger, Ziel magenta). Das Bild **wandert**; bei belegter Zelle **Tausch**. Jeder Schritt ist ein Rückgängig-Schritt und löst Autosave aus. Qualität bleibt (kein erneutes Komprimieren); Transform in der Zelle wie bei einem neuen Foto.
+- **Löschen:** Rotes × mit „Foto löschen?“ wie bisher.
+- **Projektweit:** Eine Ablage pro Projekt (nicht pro Variante), in `.beak` (`photos/` + `project.json`) und IndexedDB-Autosave. Nicht im Viewer, PDF oder Seiten-Thumbs.
+- **Drag-Start:** Nach ca. 250 ms Halten oder überwiegend nach links aus dem Panel; senkrechtes Scrollen der Liste bleibt möglich.
+- **Trennlinien-Farbe:** Bei aktivem **Vertikal teilen** / **Horizontal teilen** erscheint rechts die Farbleiste (eine Spalte wie beim Pfeil): **Schwarz** (Standard), **Grau** und **Weiß** – Grau/Schwarz wie in der bestehenden Farbpalette. Die Wahl färbt **alle** Trennlinien der aktuellen Seite um (gespeichert als `splitColor` in project.json/.beak; fehlend = bisheriges Schwarz, bestehende Projekte unverändert). Später gezogene Linien auf dieser Seite nutzen dieselbe Farbe. Gilt in Editor, Viewer, Übersicht und PDF. Ein Rückgängig-Schritt pro Wechsel, Autosave. Weiße Linien bleiben im Editor anwählbar (Auswahl/✕/Umklappen sichtbar). Ist der Bildzwischenspeicher offen, wird er beim Aktivieren des Teil-Werkzeugs geschlossen, damit die Farbleiste frei liegt.
+- **Alle Seiten – Umsortieren (Editor):** Neben ✕ steht **Seiten umsortieren**. Tippen startet den Umsortier-Modus: Layout-Kacheln wackeln leicht (iOS-Stil, versetzt; bei `prefers-reduced-motion` sanfter). Kacheln per Drag an neue Position; andere rücken nach. Der Button wird zu magenta **Fertig** und beendet den Modus (auch beim Schließen der Übersicht). Varianten-/Index-/Fehler-Kacheln bleiben fix. Varianten-Geschwister einer Seitengruppe wandern als Block. Index-/Button-Zielnummern (`targetPage`) folgen der verschobenen Seite; Fehler-`sourcePageId` bleibt per ID. Ein Rückgängig-Schritt pro Verschieben, Autosave, .beak. Ohne Umsortier-Modus unverändert Tippen → Seite öffnen.
+- **Service Worker:** Cache `anweisungen-shell-v2.19` und `?v=2.19`.
 
 ## Neu in 2.18
 

@@ -59,6 +59,536 @@
     return { src: n.src, file: n.file, scale: n.scale, x: n.x, y: n.y, tx: n.tx, ty: n.ty, rot: n.rot };
   }
 
+  /* ---- v2.19: Bildzwischenspeicher (projektweit, nur Editor) -------------------------
+     Entscheidung: eine Ablage pro Projekt (state.doc.imageTray), nicht pro Variante.
+     Fotos liegen ohnehin in photos/ + Autosave; Varianten teilen oft dieselben Rohfotos.
+     Max. 10 Einträge. Nicht in Viewer, PDF oder Seiten-Thumbs. */
+  const IMAGE_TRAY_MAX = 10;
+  const IMAGE_TRAY_CAM_ID = '__imageTray__';
+  const IMAGE_TRAY_EDGE_PX = 24;
+
+  function ensureImageTray() {
+    if (!state.doc) return [];
+    if (!Array.isArray(state.doc.imageTray)) state.doc.imageTray = [];
+    return state.doc.imageTray;
+  }
+
+  function normalizeImageTray(arr) {
+    if (!Array.isArray(arr)) return [];
+    const out = [];
+    for (const it of arr) {
+      if (!it || typeof it !== 'object') continue;
+      const photo = normalizePhoto(it.photo);
+      if (!photo) continue;
+      out.push({ id: (typeof it.id === 'string' && it.id) ? it.id : uid('t'), photo: photo });
+      if (out.length >= IMAGE_TRAY_MAX) break;
+    }
+    return out;
+  }
+
+  function freshPhotoFromSrc(photo) {
+    /* In Zelle wie frisches Foto: Fit/Cover-Default, keine alte Schiebe-/Dreh-Lage. */
+    const n = normalizePhoto(photo);
+    if (!n) return null;
+    return { src: n.src, file: n.file, scale: 1, x: 0.5, y: 0.5, tx: 0, ty: 0, rot: 0 };
+  }
+
+  function imageTrayCount() {
+    return ensureImageTray().length;
+  }
+
+  function imageTrayIsFull() {
+    return imageTrayCount() >= IMAGE_TRAY_MAX;
+  }
+
+  function setImageTrayOpen(on) {
+    const want = !!(on && state.editMode);
+    state.imageTrayOpen = want;
+    if (el.app) el.app.classList.toggle('image-tray-open', want);
+    if (el.imageTrayPanel) {
+      if (want) {
+        el.imageTrayPanel.hidden = false;
+        el.imageTrayPanel.classList.add('is-open');
+      } else {
+        el.imageTrayPanel.classList.remove('is-open');
+        /* nach Transition verstecken – sofort ok für Tests */
+        el.imageTrayPanel.hidden = true;
+        if (el.imageTrayAddMenu) el.imageTrayAddMenu.hidden = true;
+      }
+    }
+    if (el.imageTrayBtn) {
+      el.imageTrayBtn.classList.toggle('active', want);
+      el.imageTrayBtn.setAttribute('aria-pressed', want ? 'true' : 'false');
+    }
+    if (!want && state.liveLeafId === IMAGE_TRAY_CAM_ID) {
+      stopLiveCamera();
+      if (el.imageTrayLive) {
+        el.imageTrayLive.hidden = true;
+        el.imageTrayLive.innerHTML = '';
+      }
+    }
+    try { scheduleAnnColorBar(); } catch (_) {}
+    if (want) rebuildImageTrayPanel();
+  }
+
+  function toggleImageTray() {
+    setImageTrayOpen(!state.imageTrayOpen);
+  }
+
+  function slimTrayPhotoForSave(photo, idFallback) {
+    const p = normalizePhoto(photo);
+    if (!p) return null;
+    if (p.src) {
+      const ext = guessImageExt(p.src);
+      return {
+        file: 'photos/' + (idFallback || 'tray') + '.' + ext,
+        scale: 1, x: 0.5, y: 0.5, tx: 0, ty: 0, rot: 0,
+        _src: p.src,
+      };
+    }
+    if (p.file) {
+      return { file: p.file, scale: 1, x: 0.5, y: 0.5, tx: 0, ty: 0, rot: 0 };
+    }
+    return null;
+  }
+
+  function serializeImageTray(opts) {
+    const slim = !!(opts && opts.slim);
+    const list = ensureImageTray();
+    return list.map((it) => {
+      const photo = normalizePhoto(it.photo);
+      let outPhoto = null;
+      if (photo) {
+        if (slim) {
+          outPhoto = {
+            file: photo.file || ('photos/' + it.id + '.jpg'),
+            scale: 1, x: 0.5, y: 0.5, tx: 0, ty: 0, rot: 0,
+          };
+          if (!photo.src && !photo.file) outPhoto = null;
+        } else {
+          outPhoto = {
+            src: photo.src || null,
+            file: photo.file,
+            scale: 1, x: 0.5, y: 0.5, tx: 0, ty: 0, rot: 0,
+          };
+        }
+      }
+      return { id: it.id, photo: outPhoto };
+    }).filter((it) => it.photo);
+  }
+
+  function addPhotoToImageTray(photo, opts) {
+    opts = opts || {};
+    const list = ensureImageTray();
+    if (list.length >= IMAGE_TRAY_MAX) {
+      if (!opts.silent) flash('Bildzwischenspeicher voll (max. 10)', 2800, 'error');
+      return null;
+    }
+    const p = normalizePhoto(photo);
+    if (!p || !(p.src || p.file)) return null;
+    const entry = {
+      id: uid('t'),
+      photo: { src: p.src, file: p.file, scale: 1, x: 0.5, y: 0.5, tx: 0, ty: 0, rot: 0 },
+    };
+    list.push(entry);
+    if (!opts.noRender) {
+      rebuildImageTrayPanel();
+      try { queueChangeLogLabel('Bildzwischenspeicher'); } catch (_) {}
+      try { scheduleHistoryCheck(40); } catch (_) {}
+    }
+    return entry;
+  }
+
+  function removeImageTrayEntry(id, opts) {
+    opts = opts || {};
+    const list = ensureImageTray();
+    const i = list.findIndex((x) => x && x.id === id);
+    if (i < 0) return null;
+    const [gone] = list.splice(i, 1);
+    if (!opts.noRender) {
+      rebuildImageTrayPanel();
+      try { queueChangeLogLabel('Bildzwischenspeicher'); } catch (_) {}
+      try { scheduleHistoryCheck(40); } catch (_) {}
+    }
+    return gone;
+  }
+
+  function findImageTrayEntry(id) {
+    return ensureImageTray().find((x) => x && x.id === id) || null;
+  }
+
+  function rebuildImageTrayPanel() {
+    const listEl = el.imageTrayList;
+    if (!listEl) return;
+    const list = ensureImageTray();
+    const live = state.liveLeafId === IMAGE_TRAY_CAM_ID;
+    /* Idempotent: Signatur, damit iOS-Taps nicht durch unnötiges DOM-Wipe sterben */
+    const sig = list.map((it) => it.id + ':' + ((it.photo && (it.photo.src || it.photo.file)) || '').length).join('|')
+      + '|open:' + (state.imageTrayOpen ? 1 : 0)
+      + '|live:' + (live ? 1 : 0)
+      + '|full:' + (list.length >= IMAGE_TRAY_MAX ? 1 : 0);
+    if (listEl.dataset.traySig === sig && !live) return;
+    listEl.dataset.traySig = sig;
+    listEl.innerHTML = '';
+    if (!list.length) {
+      const empty = document.createElement('div');
+      empty.className = 'image-tray-empty';
+      empty.textContent = 'Noch keine Bilder.\n+ zum Hinzufügen';
+      listEl.appendChild(empty);
+    }
+    list.forEach((it) => {
+      const item = document.createElement('div');
+      item.className = 'image-tray-item';
+      item.dataset.trayId = it.id;
+      const img = document.createElement('img');
+      img.alt = '';
+      img.draggable = false;
+      if (it.photo && it.photo.src) img.src = it.photo.src;
+      item.appendChild(img);
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'image-tray-item-del cell-cam-seg-btn';
+      del.title = 'Foto löschen';
+      del.setAttribute('aria-label', 'Foto löschen');
+      del.innerHTML = '<svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        void confirmDeleteTrayPhoto(it.id);
+      });
+      item.appendChild(del);
+      bindTrayThumbPointer(item, it);
+      listEl.appendChild(item);
+    });
+    if (list.length >= IMAGE_TRAY_MAX) {
+      const full = document.createElement('div');
+      full.className = 'image-tray-full-msg';
+      full.textContent = 'Voll (10/10)';
+      listEl.appendChild(full);
+    }
+    if (el.imageTrayAddBtn) el.imageTrayAddBtn.disabled = list.length >= IMAGE_TRAY_MAX && !live;
+  }
+
+  let trayDeleteConfirmOpen = false;
+  async function confirmDeleteTrayPhoto(id) {
+    if (!state.editMode || trayDeleteConfirmOpen) return;
+    trayDeleteConfirmOpen = true;
+    let ok = false;
+    try {
+      ok = await showConfirm('Foto löschen?', { okLabel: 'Löschen', cancelLabel: 'Abbrechen' });
+    } finally {
+      trayDeleteConfirmOpen = false;
+    }
+    if (!ok) return;
+    removeImageTrayEntry(id);
+    try { flash('Foto gelöscht', 1600); } catch (_) {}
+  }
+
+  function buildTrayLiveUi() {
+    const host = el.imageTrayLive;
+    if (!host) return null;
+    host.hidden = false;
+    host.innerHTML = '';
+    const video = document.createElement('video');
+    video.className = 'cell-live-video';
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', '');
+    video.muted = true;
+    video.autoplay = true;
+    host.appendChild(video);
+    const wrap = document.createElement('div');
+    wrap.className = 'cell-kamera-wrap';
+    const row = document.createElement('div');
+    row.className = 'cell-cam-seg live';
+    row.setAttribute('role', 'group');
+    row.setAttribute('aria-label', 'Kamera');
+    const shoot = document.createElement('button');
+    shoot.type = 'button';
+    shoot.className = 'cell-cam-seg-btn cell-kamera live';
+    shoot.textContent = 'Auslösen';
+    shoot.addEventListener('click', (e) => {
+      if (trackDragDidPageSwipe) return;
+      e.stopPropagation();
+      captureStill();
+    });
+    const fotos = document.createElement('button');
+    fotos.type = 'button';
+    fotos.className = 'cell-cam-seg-btn cell-fotos';
+    fotos.textContent = 'Fotos';
+    fotos.addEventListener('click', (e) => {
+      if (trackDragDidPageSwipe) return;
+      e.stopPropagation();
+      openFilePicker(IMAGE_TRAY_CAM_ID);
+    });
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'cell-cam-cancel';
+    cancel.textContent = 'Abbrechen';
+    cancel.addEventListener('click', (e) => {
+      if (trackDragDidPageSwipe) return;
+      e.stopPropagation();
+      stopLiveCamera();
+      host.hidden = true;
+      host.innerHTML = '';
+      rebuildImageTrayPanel();
+      renderAll();
+    });
+    row.appendChild(shoot);
+    row.appendChild(fotos);
+    wrap.appendChild(row);
+    wrap.appendChild(cancel);
+    wrap.appendChild(makeCamQualityToggle());
+    wrap.appendChild(makeCamZoomToggle());
+    host.appendChild(wrap);
+    return video;
+  }
+
+  function startImageTrayCamera() {
+    if (imageTrayIsFull()) {
+      flash('Bildzwischenspeicher voll (max. 10)', 2800, 'error');
+      return;
+    }
+    if (el.imageTrayAddMenu) el.imageTrayAddMenu.hidden = true;
+    void startLiveCamera(IMAGE_TRAY_CAM_ID);
+  }
+
+  function addImportedFilesToTray(files) {
+    const list = Array.from(files || []).filter(isImageFile);
+    if (!list.length) {
+      flash('Keine Bilddatei erkannt', 3000, 'error');
+      return;
+    }
+    const room = IMAGE_TRAY_MAX - imageTrayCount();
+    if (room <= 0) {
+      flash('Bildzwischenspeicher voll (max. 10)', 2800, 'error');
+      return;
+    }
+    const take = list.slice(0, room);
+    const skipped = list.length - take.length;
+    (async () => {
+      let placed = 0;
+      for (const f of take) {
+        try {
+          const dataUrl = await prepareImportedPhoto(f);
+          if (addPhotoToImageTray({ src: dataUrl }, { noRender: true })) placed++;
+        } catch (err) {
+          console.error('Tray-Foto', err);
+        }
+      }
+      rebuildImageTrayPanel();
+      try { queueChangeLogLabel('Bildzwischenspeicher'); } catch (_) {}
+      try { scheduleHistoryCheck(40); } catch (_) {}
+      let msg = placed === 1 ? '1 Foto in den Zwischenspeicher' : (placed + ' Fotos in den Zwischenspeicher');
+      if (skipped > 0) msg += ' – Limit 10, ' + skipped + ' übersprungen';
+      flash(msg, 2800);
+    })();
+  }
+
+  /* Drag: Tray → Zelle / Zelle → Tray.
+     Startregel: nach ~250 ms Halten ODER überwiegend nach links (aus dem Panel heraus).
+     Senkrechtes Scrollen im Tray bleibt bis dahin möglich. */
+  let trayDrag = null;
+
+  function clearTrayDropHighlights() {
+    document.querySelectorAll('.image-tray-drop-target').forEach((n) => n.classList.remove('image-tray-drop-target'));
+  }
+
+  function trayDropTargetAt(x, y) {
+    const stack = document.elementsFromPoint(x, y);
+    for (const n of stack) {
+      if (!n || !n.closest) continue;
+      if (n.closest('.image-tray')) continue;
+      if (n.closest('.image-tray-drag-ghost')) continue;
+      const leaf = n.closest('.cell-leaf');
+      if (leaf && leaf.dataset.leafId) return { kind: 'leaf', id: leaf.dataset.leafId, el: leaf };
+      const clip = n.closest('.ann-photo-clipboard-node');
+      if (clip && clip.dataset.id) return { kind: 'clipboard', id: clip.dataset.id, el: clip };
+    }
+    /* Drop zurück in den offenen Tray (von Zelle) */
+    const tray = el.imageTrayPanel;
+    if (tray && !tray.hidden && state.imageTrayOpen) {
+      const r = tray.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+        return { kind: 'tray', id: null, el: tray };
+      }
+    }
+    return null;
+  }
+
+  function endTrayDrag(commit) {
+    if (!trayDrag) return;
+    const d = trayDrag;
+    trayDrag = null;
+    clearTrayDropHighlights();
+    if (d.ghost && d.ghost.parentNode) d.ghost.parentNode.removeChild(d.ghost);
+    try {
+      if (d.captured && d.el && d.el.releasePointerCapture) d.el.releasePointerCapture(d.pointerId);
+    } catch (_) {}
+    if (!commit || !d.moved) return;
+    const target = d.lastTarget;
+    if (!target) return;
+    if (d.from === 'tray') {
+      if (target.kind === 'leaf' || target.kind === 'clipboard') {
+        moveTrayPhotoToHolder(d.trayId, target.id);
+      }
+    } else if (d.from === 'cell') {
+      if (target.kind === 'tray') {
+        moveHolderPhotoToTray(d.holderId);
+      }
+    }
+  }
+
+  function moveTrayPhotoToHolder(trayId, holderId) {
+    const entry = findImageTrayEntry(trayId);
+    if (!entry || !entry.photo) return;
+    const hit = findPhotoHolderInDoc(holderId);
+    if (!hit || !hit.holder) return;
+    const incoming = freshPhotoFromSrc(entry.photo);
+    if (!incoming) return;
+    const old = clonePhoto(hit.holder.photo);
+    removeImageTrayEntry(trayId, { noRender: true });
+    hit.holder.photo = incoming;
+    if (old && (old.src || old.file)) {
+      addPhotoToImageTray(old, { noRender: true, silent: true });
+    }
+    rebuildImageTrayPanel();
+    renderAll();
+    try { queueChangeLogLabel('Bildzwischenspeicher'); } catch (_) {}
+    try { scheduleHistoryCheck(40); } catch (_) {}
+  }
+
+  function moveHolderPhotoToTray(holderId) {
+    if (imageTrayIsFull()) {
+      flash('Bildzwischenspeicher voll (max. 10)', 2800, 'error');
+      return;
+    }
+    const hit = findPhotoHolderInDoc(holderId);
+    if (!hit || !hit.holder) return;
+    const photo = clonePhoto(hit.holder.photo);
+    if (!photo) return;
+    if (state.liveLeafId === holderId) stopLiveCamera();
+    hit.holder.photo = null;
+    addPhotoToImageTray(photo, { noRender: true });
+    rebuildImageTrayPanel();
+    renderAll();
+    try { queueChangeLogLabel('Bildzwischenspeicher'); } catch (_) {}
+    try { scheduleHistoryCheck(40); } catch (_) {}
+  }
+
+  function bindTrayThumbPointer(item, entry) {
+    item.addEventListener('pointerdown', (e) => {
+      if (!state.editMode || !state.imageTrayOpen) return;
+      if (e.button != null && e.button !== 0) return;
+      if (e.target && e.target.closest && e.target.closest('.image-tray-item-del')) return;
+      e.stopPropagation();
+      const listEl = el.imageTrayList;
+      trayDrag = {
+        from: 'tray',
+        trayId: entry.id,
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        startScroll: listEl ? listEl.scrollTop : 0,
+        t0: performance.now(),
+        armed: false,
+        moved: false,
+        ghost: null,
+        el: item,
+        lastTarget: null,
+        captured: false,
+      };
+      /* deferred capture – erst wenn Drag wirklich startet */
+    });
+  }
+
+  function onTrayDragMove(e) {
+    if (!trayDrag || trayDrag.pointerId !== e.pointerId) return;
+    const dx = e.clientX - trayDrag.startX;
+    const dy = e.clientY - trayDrag.startY;
+    const held = performance.now() - trayDrag.t0 >= 250;
+    const leftish = dx < -12 && Math.abs(dx) > Math.abs(dy) * 0.85;
+    if (!trayDrag.armed) {
+      if (trayDrag.from === 'tray') {
+        /* Senkrecht → Scroll erlauben, Drag noch nicht */
+        if (!held && !leftish) {
+          if (Math.abs(dy) > 8 && Math.abs(dy) >= Math.abs(dx)) return;
+          if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        }
+        if (!(held || leftish)) return;
+      } else {
+        if (Math.hypot(dx, dy) < 10 && !held) return;
+      }
+      trayDrag.armed = true;
+      trayDrag.moved = true;
+      try {
+        trayDrag.el.setPointerCapture(trayDrag.pointerId);
+        trayDrag.captured = true;
+      } catch (_) {}
+      const ghost = document.createElement('div');
+      ghost.className = 'image-tray-drag-ghost';
+      const img = document.createElement('img');
+      img.alt = '';
+      if (trayDrag.from === 'tray') {
+        const ent = findImageTrayEntry(trayDrag.trayId);
+        if (ent && ent.photo && ent.photo.src) img.src = ent.photo.src;
+      } else {
+        const hit = findPhotoHolderInDoc(trayDrag.holderId);
+        if (hit && hit.holder && hit.holder.photo && hit.holder.photo.src) img.src = hit.holder.photo.src;
+      }
+      ghost.appendChild(img);
+      document.body.appendChild(ghost);
+      trayDrag.ghost = ghost;
+      /* Scroll während Drag sperren */
+      if (el.imageTrayList) el.imageTrayList.style.overflowY = 'hidden';
+    }
+    if (trayDrag.ghost) {
+      trayDrag.ghost.style.left = e.clientX + 'px';
+      trayDrag.ghost.style.top = e.clientY + 'px';
+    }
+    clearTrayDropHighlights();
+    const target = trayDropTargetAt(e.clientX, e.clientY);
+    trayDrag.lastTarget = target;
+    if (target && target.el && (target.kind === 'leaf' || target.kind === 'clipboard')) {
+      target.el.classList.add('image-tray-drop-target');
+    }
+    e.preventDefault();
+  }
+
+  function onTrayDragUp(e) {
+    if (!trayDrag || trayDrag.pointerId !== e.pointerId) return;
+    if (el.imageTrayList) el.imageTrayList.style.overflowY = '';
+    const commit = !!(trayDrag.armed && trayDrag.moved);
+    endTrayDrag(commit);
+  }
+
+  function bindCellToTrayDrag(leafEl, holderId) {
+    if (!leafEl || !holderId) return;
+    leafEl.addEventListener('pointerdown', (e) => {
+      if (!state.editMode || !state.imageTrayOpen) return;
+      if (state.teleportMode || state.photoMoveMode || state.photoRotateMode) return;
+      if (e.button != null && e.button !== 0) return;
+      if (e.target && e.target.closest && e.target.closest('.cell-kamera-wrap, .image-tray-item-del, .ann-delete, .handle')) return;
+      const hit = findPhotoHolderInDoc(holderId);
+      if (!hit || !hit.holder || !hit.holder.photo || !(hit.holder.photo.src || hit.holder.photo.file)) return;
+      /* Nur starten, wenn Tray offen und Platz oder Swap-Semantik – Zelle→Tray braucht Platz */
+      e.stopPropagation();
+      trayDrag = {
+        from: 'cell',
+        holderId: holderId,
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        t0: performance.now(),
+        armed: false,
+        moved: false,
+        ghost: null,
+        el: leafEl,
+        lastTarget: null,
+        captured: false,
+      };
+    });
+  }
+
+
   function makeLeaf(photo) {
     return { type: 'leaf', id: uid('l'), photo: clonePhoto(photo), caption: '', captionShort: '', captionX: 0.05, captionY: 0.78, variantId: null };
   }
@@ -148,6 +678,8 @@
       pages: [makeVariantenPage(), makeIndexPage(), makePage(), makeFehlerPage()],
       pageIndex: 0,
       variants: [],
+      /* v2.19: Bildzwischenspeicher – projektweit (eine Ablage für alle Varianten) */
+      imageTray: [],
     };
   }
 
@@ -206,13 +738,16 @@
 
   function normalizeVariantenPage(p) {
     const root = (p && p.root && validateCell(p.root)) ? normalizeCellTree(p.root) : makeLeaf(null);
-    return {
+    const out = {
       id: (p && typeof p.id === 'string') ? p.id : uid('p'),
       kind: 'varianten',
       title: (p && typeof p.title === 'string' && p.title) ? p.title : 'Varianten',
       root: root,
       annotations: [],
     };
+    const sc = normalizeSplitColor(p && p.splitColor);
+    if (sc) out.splitColor = sc;
+    return out;
   }
 
   function getVariantenPage() {
@@ -1708,6 +2243,8 @@
     teleportMode: false,
     teleportPhoto: null,
     teleportSourceId: null,
+    /* v2.19: Bildzwischenspeicher-Panel (nur Editor) */
+    imageTrayOpen: false,
     annTool: null,
     annColor: null, // v1.10: Farbe des aktiven Werkzeugs (Rechteck/Kreis/Text)
     doc: makeDocument(),
@@ -1764,6 +2301,15 @@
     photoRotateBtn: document.getElementById('photoRotateBtn'),
     teleportBtn: document.getElementById('teleportBtn'),
     toolPhotoClipboard: document.getElementById('toolPhotoClipboard'),
+    imageTrayBtn: document.getElementById('imageTrayBtn'),
+    imageTrayPanel: document.getElementById('imageTrayPanel'),
+    imageTrayList: document.getElementById('imageTrayList'),
+    imageTrayCloseBtn: document.getElementById('imageTrayCloseBtn'),
+    imageTrayAddBtn: document.getElementById('imageTrayAddBtn'),
+    imageTrayAddMenu: document.getElementById('imageTrayAddMenu'),
+    imageTrayCamBtn: document.getElementById('imageTrayCamBtn'),
+    imageTrayFotosBtn: document.getElementById('imageTrayFotosBtn'),
+    imageTrayLive: document.getElementById('imageTrayLive'),
     pageIndicator: document.getElementById('pageIndicator'),
     drawer: document.getElementById('drawer'),
     menuBackdrop: document.getElementById('menuBackdrop'),
@@ -1806,6 +2352,7 @@
     indexPageBtn: document.getElementById('indexPageBtn'),
     lastPageBtn: document.getElementById('lastPageBtn'),
     overviewBackdrop: document.getElementById('overviewBackdrop'),
+    overviewReorderBtn: document.getElementById('overviewReorderBtn'),
     overviewPanel: document.getElementById('overviewPanel'),
     overviewGrid: document.getElementById('overviewGrid'),
     overviewCloseBtn: document.getElementById('overviewCloseBtn'),
@@ -2435,7 +2982,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.18';
+  const APP_VERSION = '2.19';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -3748,6 +4295,7 @@
       setAnnTool(null);
       stopLiveCamera();
       closeOverview();
+      try { setImageTrayOpen(false); } catch (_) {}
     }
     /* v1.69: Chrome-Leiste-Position ist temporär — Editor-Einstieg immer oben;
        Fertig / Verlassen setzt zurück. */
@@ -3925,7 +4473,12 @@
       setPhotoRotateMode(false);
       setTeleportMode(false);
       setAnnTool(null);
+      /* v2.19: bei offenem Tray die Optionsleiste freigeben – Tray schließen */
+      if (state.imageTrayOpen) {
+        try { setImageTrayOpen(false); } catch (_) {}
+      }
     }
+    try { scheduleAnnColorBar(); } catch (_) {}
   }
 
   function setPhotoMoveMode(on) {
@@ -4643,6 +5196,9 @@
 
   function isPageDragBlocked(target) {
     if (photoGesture) return true;
+    if (trayDrag) return true;
+    /* v2.19: Interaktion im Bildzwischenspeicher – kein Seiten-Wischen */
+    if (target.closest && target.closest('.image-tray')) return true;
     /* v1.44: Kamera/Fotos liegen in .cell-leaf — Geste dort darf Seiten-Wischen
        starten (Tap aktiviert weiter den Button), auch bei Foto-schieben/Teleport/Drehen. */
     const onCamChrome = !!(target.closest && target.closest('.cell-kamera-wrap'));
@@ -4699,6 +5255,10 @@
       return;
     }
 
+    const edgeOpen = !!(state.editMode && !state.imageTrayOpen &&
+      e.clientX >= (window.innerWidth - IMAGE_TRAY_EDGE_PX));
+    const edgeClose = !!(state.editMode && state.imageTrayOpen &&
+      e.clientX >= (window.innerWidth - (112 + IMAGE_TRAY_EDGE_PX)));
     trackDrag = {
       pointerId: e.pointerId,
       startX: e.clientX,
@@ -4711,6 +5271,8 @@
       moved: false,
       target: e.target,
       captured: false,
+      edgeTrayOpen: edgeOpen,
+      edgeTrayClose: edgeClose && !edgeOpen,
     };
     /* v2.13: Kamera/Fotos/Auslösen/Abbrechen – Pointer NICHT sofort capturen.
        Neuere WebKit-Versionen (Safari/iPadOS 26+, auch Chrome bei Maus) schicken den
@@ -4808,6 +5370,30 @@
       }
     }
     if (trackDrag.axis !== 'h') return;
+
+    /* v2.19: Rand-Wischen rechts → Bildzwischenspeicher öffnen/schließen (kein Seitenwechsel) */
+    if (trackDrag.edgeTrayOpen && (e.clientX - trackDrag.startX) < -28) {
+      trackDrag.moved = true;
+      trackDragDidPageSwipe = true;
+      trackDrag = null;
+      setImageTrayOpen(true);
+      e.preventDefault();
+      return;
+    }
+    if (trackDrag.edgeTrayClose && (e.clientX - trackDrag.startX) > 28) {
+      trackDrag.moved = true;
+      trackDragDidPageSwipe = true;
+      trackDrag = null;
+      setImageTrayOpen(false);
+      e.preventDefault();
+      return;
+    }
+    if (trackDrag.edgeTrayOpen || trackDrag.edgeTrayClose) {
+      /* Rand-Geste: Seite nicht mitziehen, bis klar ist dass es kein Tray-Swipe ist */
+      if (Math.abs(e.clientX - trackDrag.startX) < 40) return;
+      trackDrag.edgeTrayOpen = false;
+      trackDrag.edgeTrayClose = false;
+    }
 
     trackDrag.moved = true;
     captureTrackDragPointer(); /* v2.13: spätes Capture bei Start auf Kamera-Buttons */
@@ -5771,6 +6357,48 @@
     { key: 'gruen', label: 'Grün', rgb: '34, 197, 94' }, /* v1.67 etwas heller */
     { key: 'pink', label: 'Pink', rgb: '221, 0, 122' }, /* v1.67 Akzent-Pink */
   ];
+  /* v2.19: Trennlinien-Farbe (Seite) – gleiche Grau-/Schwarz-Werte wie ANN_COLORS; Weiß extra */
+  const SPLIT_COLORS = [
+    { key: 'schwarz', label: 'Schwarz', css: '#000000' },
+    { key: 'grau', label: 'Grau', css: 'rgb(120, 120, 120)' },
+    { key: 'weiss', label: 'Weiß', css: '#ffffff' },
+  ];
+  function normalizeSplitColor(key) {
+    if (key === 'grau' || key === 'weiss' || key === 'schwarz') return key;
+    return null; /* unset → Legacy-Defaults (Layout schwarz, Varianten-Viewer weiß) */
+  }
+  function pageSplitColorKey(page) {
+    return normalizeSplitColor(page && page.splitColor);
+  }
+  function pageSplitColorCss(page) {
+    const k = pageSplitColorKey(page);
+    if (!k) return null;
+    const hit = SPLIT_COLORS.find((c) => c.key === k);
+    return hit ? hit.css : null;
+  }
+  function applyPageSplitColor(rootEl, page) {
+    if (!rootEl) return;
+    const css = pageSplitColorCss(page);
+    const key = pageSplitColorKey(page);
+    if (css) rootEl.style.setProperty('--split-line-color', css);
+    else rootEl.style.removeProperty('--split-line-color');
+    if (key) rootEl.setAttribute('data-split-color', key);
+    else rootEl.removeAttribute('data-split-color');
+  }
+  function setPageSplitColor(key) {
+    const page = currentPage();
+    if (!page || isFixedPage(page)) return;
+    const next = normalizeSplitColor(key) || 'schwarz';
+    const prev = pageSplitColorKey(page) || 'schwarz';
+    if (next === prev && page.splitColor) {
+      /* already set */ 
+    }
+    page.splitColor = next;
+    try { queueChangeLogLabel('Trennlinien-Farbe'); } catch (_) {}
+    renderAll();
+    try { if (typeof historyCommit === 'function') historyCommit(); } catch (_) {}
+    try { scheduleAnnColorBar(); } catch (_) {}
+  }
   function annColorTypeOf(typeOrTool) {
     if (typeOrTool === 'rect' || typeOrTool === 'ellipse' || typeOrTool === 'arrow') return 'shape';
     if (typeOrTool === 'text' || typeOrTool === 'textSm') return 'text';
@@ -5835,11 +6463,39 @@
     updateAnnArrowBar();
     const bar = el.annColorBar;
     if (!bar) return;
-    const toolType = state.editMode ? annColorTypeOf(state.annTool) : null;
-    const selAnn = toolType ? null : selectedColorableAnnotation();
-    const show = !!(toolType || selAnn) && !isBlockingOverlayOpen();
+    /* v2.19: Vertikal/Horizontal teilen → Farbleiste für Trennlinien (Schwarz/Grau/Weiß) */
+    const splitColorMode = !!(state.editMode && state.splitTool && !isFixedPage(currentPage()) && !isBlockingOverlayOpen());
+    const toolType = (!splitColorMode && state.editMode) ? annColorTypeOf(state.annTool) : null;
+    const selAnn = toolType ? null : (splitColorMode ? null : selectedColorableAnnotation());
+    const show = !!(splitColorMode || toolType || selAnn) && !isBlockingOverlayOpen();
     bar.hidden = !show;
+    bar.classList.toggle('is-split-colors', splitColorMode);
     if (!show) return;
+    if (splitColorMode) {
+      const active = pageSplitColorKey(currentPage()) || 'schwarz';
+      bar.dataset.target = 'split';
+      bar.classList.toggle('is-text-colors', false);
+      bar.querySelectorAll('.ann-color-swatch').forEach((b) => {
+        const key = b.dataset.color;
+        const allowed = key === 'schwarz' || key === 'grau' || key === 'weiss';
+        b.hidden = !allowed;
+        if (!allowed) {
+          b.classList.remove('active');
+          b.setAttribute('aria-pressed', 'false');
+          return;
+        }
+        const on = key === active;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        const dot = b.querySelector('.ann-color-dot');
+        if (dot) {
+          dot.classList.toggle('is-text', true);
+          const hit = SPLIT_COLORS.find((c) => c.key === key);
+          dot.style.setProperty('--sw', hit ? hit.css : '#000');
+        }
+      });
+      return;
+    }
     const typeOrTool = toolType ? state.annTool : selAnn.type;
     const isTextTarget = annColorTypeOf(typeOrTool) === 'text';
     let active = toolType ? (state.annColor || annDefaultColor(state.annTool)) : annColorKey(selAnn);
@@ -5849,6 +6505,12 @@
     bar.querySelectorAll('.ann-color-swatch').forEach((b) => {
       const key = b.dataset.color;
       const isNone = annIsNoneColor(key);
+      const isWeiss = key === 'weiss';
+      if (isWeiss) {
+        b.hidden = true;
+        b.classList.remove('active');
+        return;
+      }
       if (isNone) {
         b.hidden = !isTextTarget;
         if (!isTextTarget) {
@@ -5933,6 +6595,10 @@
   }
 
   function onAnnColorSwatch(key) {
+    if (state.editMode && state.splitTool) {
+      if (key === 'schwarz' || key === 'grau' || key === 'weiss') setPageSplitColor(key);
+      return;
+    }
     const toolType = state.editMode ? annColorTypeOf(state.annTool) : null;
     const selAnn = toolType ? null : selectedColorableAnnotation();
     const typeOrTool = toolType ? state.annTool : (selAnn && selAnn.type);
@@ -7486,6 +8152,8 @@
     const stageInner = document.createElement('div');
     stageInner.className = 'stage-inner';
     if (isVariantenPage(page)) stageInner.classList.add('varianten-stage');
+    /* v2.19: Trennlinien-Farbe der Seite (auch Viewer/PDF/Thumbs über denselben Render) */
+    try { applyPageSplitColor(stageInner, page); } catch (_) {}
 
     if (isIndexPage(page)) {
       stageInner.appendChild(renderIndexPanel(page));
@@ -7667,6 +8335,9 @@
       state.liveLeafId = keepLeaf;
       state.stream = keepStream;
     }
+    try {
+      if (state.editMode && state.imageTrayOpen) rebuildImageTrayPanel();
+    } catch (_) {}
     if (typeof scheduleHistoryCheck === 'function') scheduleHistoryCheck();
   }
 
@@ -8230,6 +8901,26 @@
         rotatePhotoOfLeaf(a, img);
         return;
       }
+      /* v2.19: Fotozwischenspeicher-Box → Bildzwischenspeicher (Tray offen) */
+      if (state.imageTrayOpen && hasPhoto && !state.photoMoveMode && !state.photoRotateMode) {
+        if (e.button != null && e.button !== 0) return;
+        e.stopPropagation();
+        trayDrag = {
+          from: 'cell',
+          holderId: a.id,
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          startY: e.clientY,
+          t0: performance.now(),
+          armed: false,
+          moved: false,
+          ghost: null,
+          el: node,
+          lastTarget: null,
+          captured: false,
+        };
+        return;
+      }
     }
 
     const isTextEl = e.target.classList.contains('ann-text');
@@ -8621,6 +9312,19 @@
   let filePickerTarget = null;
 
   function setPhoto(leafId, dataUrl) {
+    /* v2.19: Kamera/Import gezielt in den Bildzwischenspeicher */
+    if (leafId === IMAGE_TRAY_CAM_ID) {
+      if (!dataUrl) return;
+      if (el.imageTrayLive) {
+        el.imageTrayLive.hidden = true;
+        el.imageTrayLive.innerHTML = '';
+      }
+      addPhotoToImageTray({ src: dataUrl });
+      if (!state.imageTrayOpen) setImageTrayOpen(true);
+      else rebuildImageTrayPanel();
+      renderAll();
+      return;
+    }
     let found = false;
     let isClipboard = false;
     /* v1.92: zuerst aktuelle Seite — sonst trifft gleiche leafId auf Shared/Geschwister */
@@ -8679,8 +9383,13 @@
   }
 
   function stopLiveCamera() {
+    const wasTray = state.liveLeafId === IMAGE_TRAY_CAM_ID;
     stopStreamTracks();
     state.liveLeafId = null;
+    if (wasTray && el.imageTrayLive) {
+      el.imageTrayLive.hidden = true;
+      el.imageTrayLive.innerHTML = '';
+    }
   }
 
   async function startLiveCamera(leafId) {
@@ -8738,22 +9447,29 @@
           state.camZoomHw = { min: caps.zoom.min || 1, max: caps.zoom.max };
         }
       } catch (_) {}
-      const slide = el.pageTrack.querySelector(
-        '.page-slide[data-page-index="' + state.doc.pageIndex + '"]'
-      );
-      const leafEl = slide && (
-        slide.querySelector('[data-leaf-id="' + leafId + '"]') ||
-        slide.querySelector('.ann-photo-clipboard-node[data-id="' + leafId + '"] .ann-photo-clipboard') ||
-        slide.querySelector('.ann-photo-clipboard-node[data-id="' + leafId + '"]')
-      );
-      const video = leafEl && leafEl.querySelector('.cell-live-video');
+      let video = null;
+      let leafEl = null;
+      if (leafId === IMAGE_TRAY_CAM_ID) {
+        if (!state.imageTrayOpen) setImageTrayOpen(true);
+        video = buildTrayLiveUi();
+      } else {
+        const slide = el.pageTrack.querySelector(
+          '.page-slide[data-page-index="' + state.doc.pageIndex + '"]'
+        );
+        leafEl = slide && (
+          slide.querySelector('[data-leaf-id="' + leafId + '"]') ||
+          slide.querySelector('.ann-photo-clipboard-node[data-id="' + leafId + '"] .ann-photo-clipboard') ||
+          slide.querySelector('.ann-photo-clipboard-node[data-id="' + leafId + '"]')
+        );
+        video = leafEl && leafEl.querySelector('.cell-live-video');
+      }
       if (video) {
         video.srcObject = stream;
         state.liveVideoEl = video;
         applyCamZoomToVideo(video);
         await video.play().catch(() => {});
       }
-      if (leafEl && !leafEl.classList.contains('live-camera')) {
+      if (leafId !== IMAGE_TRAY_CAM_ID && leafEl && !leafEl.classList.contains('live-camera')) {
         renderAll();
       }
     } catch (err) {
@@ -8830,6 +9546,12 @@
     const list = Array.from(files || []).filter(isImageFile);
     if (!list.length || !leafId) {
       if (files && files.length) flash('Keine Bilddatei erkannt', 3000, 'error');
+      return;
+    }
+    if (leafId === IMAGE_TRAY_CAM_ID) {
+      stopLiveCamera();
+      filePickerTarget = null;
+      addImportedFilesToTray(list);
       return;
     }
     const page = currentPage();
@@ -9127,7 +9849,7 @@
   }
   function histSignature() {
     const st = state.stueckliste && state.stueckliste.dataUrl ? [state.stueckliste.name, state.stueckliste.dataUrl] : null;
-    return JSON.stringify({ p: state.doc.pages, st }, (k, v) => {
+    return JSON.stringify({ p: state.doc.pages, st, tray: state.doc.imageTray || [] }, (k, v) => {
       if (typeof v === 'string' && v.length > 240) {
         const m = v.length >> 1;
         return '§' + v.length + ':' + v.slice(0, 40) + v.slice(m, m + 48) + v.slice(-64);
@@ -9138,6 +9860,7 @@
   function histSnapshot() {
     return {
       pages: histClone(state.doc.pages),
+      imageTray: histClone(ensureImageTray()),
       stueckliste: state.stueckliste && state.stueckliste.dataUrl
         ? { name: state.stueckliste.name, dataUrl: state.stueckliste.dataUrl }
         : null,
@@ -9146,7 +9869,7 @@
   }
   function histBusy() {
     // Teleport: „Foto aufgenommen“ ist nur ein Zwischenzustand → erst nach dem Ablegen ein Schritt
-    return !!(drag || photoGesture || hist.restoring || hist.loading > 0 || state.teleportPhoto);
+    return !!(drag || photoGesture || trayDrag || hist.restoring || hist.loading > 0 || state.teleportPhoto);
   }
   function historyReset() {
     clearTimeout(hist.timer);
@@ -9196,7 +9919,12 @@
       state.selectedId = null;
       state.selectedSplitId = null;
       const pages = histClone(entry.pages);
-      state.doc = { pages, pageIndex: clamp(pageIndex, 0, Math.max(0, pages.length - 1)) };
+      state.doc = {
+        pages,
+        pageIndex: clamp(pageIndex, 0, Math.max(0, pages.length - 1)),
+        imageTray: normalizeImageTray(entry.imageTray),
+        variants: state.doc.variants || [],
+      };
       const cur = state.stueckliste;
       if (!entry.stueckliste) state.stueckliste = null;
       else if (!cur || cur.dataUrl !== entry.stueckliste.dataUrl) {
@@ -9949,12 +10677,15 @@
 
   function serializePage(p, opts) {
     if (isVariantenPage(p)) {
-      return {
+      const vo = {
         id: p.id,
         kind: 'varianten',
         title: p.title || 'Varianten',
         root: cloneCell(p.root, opts),
       };
+      const sc = normalizeSplitColor(p.splitColor);
+      if (sc) vo.splitColor = sc;
+      return vo;
     }
     if (isIndexPage(p)) {
       return {
@@ -9998,6 +10729,8 @@
     }
     const embed = normalizeFehlerEmbed(p.fehlerEmbed);
     if (embed) out.fehlerEmbed = { rowIds: embed.rowIds.slice() };
+    const sc = normalizeSplitColor(p.splitColor);
+    if (sc) out.splitColor = sc;
     return out;
   }
 
@@ -10016,6 +10749,8 @@
         stuecklisteFile: v.stuecklisteFile || ('source/Stueckliste-' + v.id + '.pdf'),
       })),
       activeVariantId: state.activeVariantId || null,
+      /* v2.19: Bildzwischenspeicher projektweit */
+      imageTray: serializeImageTray(opts),
     };
     /* Legacy-Einzelstückliste + Varianten: Zip-Pfad = Originalname unter source/ (v1.96) */
     const usedPdfPaths = new Set();
@@ -10123,6 +10858,8 @@
       };
       const embed = normalizeFehlerEmbed(p.fehlerEmbed);
       if (embed) layoutPage.fehlerEmbed = embed;
+      const sc = normalizeSplitColor(p.splitColor);
+      if (sc) layoutPage.splitColor = sc;
       pages.push(layoutPage);
     }
     const migrated = ensureBookends(pages);
@@ -10130,7 +10867,12 @@
        v1.48: gerätelokale letzte Seite danach via applyRememberedPage() (localStorage). */
     const idx = 0;
     stopLiveCamera();
-    state.doc = { pages: migrated, pageIndex: idx, variants: Array.isArray(data.variants) ? data.variants.slice() : [] };
+    state.doc = {
+      pages: migrated,
+      pageIndex: idx,
+      variants: Array.isArray(data.variants) ? data.variants.slice() : [],
+      imageTray: normalizeImageTray(data.imageTray),
+    };
     state.changeLog = normalizeChangeLog(data.changeLog);
     state.selectedId = null;
     state.selectedSplitId = null;
@@ -10455,12 +11197,15 @@
         /* v1.91: Varianten-Bookend korrekt speichern (vorher fälschlich als layout →
            beim Öffnen leere neue Varianten-Seite + alte Seite als Extra-Layout). */
         if (isVariantenPage(p)) {
-          return {
+          const vo = {
             id: p.id,
             kind: 'varianten',
             title: p.title || 'Varianten',
             root: slimCell(p.root),
           };
+          const scV = normalizeSplitColor(p.splitColor);
+          if (scV) vo.splitColor = scV;
+          return vo;
         }
         if (isIndexPage(p)) {
           return {
@@ -10541,6 +11286,8 @@
         }
         const embed = normalizeFehlerEmbed(p.fehlerEmbed);
         if (embed) layoutOut.fehlerEmbed = { rowIds: embed.rowIds.slice() };
+        const scZip = normalizeSplitColor(p.splitColor);
+        if (scZip) layoutOut.splitColor = scZip;
         return layoutOut;
       }),
       changeLog: normalizeChangeLog(state.changeLog),
@@ -10552,7 +11299,23 @@
         stuecklisteFile: v.stuecklisteFile || ('source/Stueckliste-' + v.id + '.pdf'),
       })),
       activeVariantId: state.activeVariantId || null,
+      imageTray: [],
     };
+    /* v2.19: Bildzwischenspeicher → photos/tray-*.ext + project.json.imageTray */
+    for (const it of ensureImageTray()) {
+      const photo = normalizePhoto(it.photo);
+      if (!photo) continue;
+      let outPhoto = null;
+      if (photo.src) {
+        const ext = guessImageExt(photo.src);
+        const file = 'photos/' + it.id + '.' + ext;
+        outPhoto = { file: file, scale: 1, x: 0.5, y: 0.5, tx: 0, ty: 0, rot: 0 };
+        photoEntries.push({ file: file, src: photo.src });
+      } else if (photo.file) {
+        outPhoto = { file: photo.file, scale: 1, x: 0.5, y: 0.5, tx: 0, ty: 0, rot: 0 };
+      }
+      if (outPhoto) project.imageTray.push({ id: it.id, photo: outPhoto });
+    }
     const usedZipPdfPaths = new Set();
     if (state.stueckliste && state.stueckliste.dataUrl) {
       const file = allocateStuecklisteZipPath(
@@ -10787,6 +11550,11 @@
         }
       }
     }
+    if (Array.isArray(doc.imageTray)) {
+      for (const it of doc.imageTray) {
+        if (it) walkAnnPhoto(it.photo);
+      }
+    }
     let st = null;
     if (state.stueckliste && state.stueckliste.dataUrl) {
       const key = storeKeyFor(state.stueckliste.dataUrl);
@@ -10975,6 +11743,11 @@
         }
       }
     }
+    if (Array.isArray(meta.doc.imageTray)) {
+      for (const it of meta.doc.imageTray) {
+        if (it && it.photo && it.photo.ref) refs.add(it.photo.ref);
+      }
+    }
     if (meta.stueckliste && meta.stueckliste.ref) refs.add(meta.stueckliste.ref);
     const vstMeta = (meta.variantStuecklisten && typeof meta.variantStuecklisten === 'object') ? meta.variantStuecklisten : {};
     for (const info of Object.values(vstMeta)) {
@@ -11017,6 +11790,14 @@
             a.photo.src = urls.get(a.photo.ref) || null;
             delete a.photo.ref;
           }
+        }
+      }
+    }
+    if (Array.isArray(meta.doc.imageTray)) {
+      for (const it of meta.doc.imageTray) {
+        if (it && it.photo && it.photo.ref) {
+          it.photo.src = urls.get(it.photo.ref) || null;
+          delete it.photo.ref;
         }
       }
     }
@@ -11194,6 +11975,11 @@
           enqueue(a.photo, a.photo.file);
         }
       }
+    }
+    /* v2.19: Bildzwischenspeicher */
+    for (const it of ensureImageTray()) {
+      if (!it || !it.photo) continue;
+      enqueue(it.photo, it.photo.file);
     }
     await Promise.all(tasks);
   }
@@ -12340,8 +13126,359 @@
     fitOverviewGrid();
   }
 
+  /* ---- v2.19: Alle Seiten – Umsortieren (Editor) -------------------------------
+     Nur Layout-Seiten (Nav-Kacheln) sind beweglich. Varianten/Index/Fehler bleiben
+     Bookends. Varianten-Geschwister derselben pageGroup wandern als Block mit.
+     targetPage (Index/Buttons) = 1-basierte Nav-Nummer → nach dem Verschieben
+     per Seiten-ID nachziehen. Fehler.sourcePageId bleibt per ID gültig. */
+  let overviewReorderMode = false;
+  let overviewDrag = null;
+
+  function isOverviewMovablePage(page) {
+    return !!(page && !isVariantenPage(page) && !isIndexPage(page) && !isFehlerPage(page) && !isFixedPage(page));
+  }
+
+  function setOverviewReorderMode(on) {
+    overviewReorderMode = !!(on && state.editMode && isOverviewOpen());
+    if (el.overviewGrid) el.overviewGrid.classList.toggle('is-reordering', overviewReorderMode);
+    if (el.overviewReorderBtn) {
+      el.overviewReorderBtn.hidden = !state.editMode || !isOverviewOpen();
+      if (overviewReorderMode) {
+        el.overviewReorderBtn.textContent = 'Fertig';
+        el.overviewReorderBtn.classList.add('is-done', 'primary');
+      } else {
+        el.overviewReorderBtn.textContent = 'Seiten umsortieren';
+        el.overviewReorderBtn.classList.remove('is-done', 'primary');
+      }
+    }
+    if (!overviewReorderMode) endOverviewDrag(false);
+    /* Klick-Handler: im Reorder-Modus kein goToPage – Drag übernimmt */
+    if (el.overviewGrid) {
+      el.overviewGrid.querySelectorAll('.overview-thumb').forEach((btn) => {
+        btn.classList.toggle('overview-fixed', btn.dataset.movable !== '1');
+      });
+    }
+  }
+
+  function remapTargetPagesByNavIds(oldIds, newIds) {
+    /* oldIds/newIds: page.id je Nav-Slot (1-basiert Index = i+1) */
+    const oldNumById = new Map();
+    oldIds.forEach((id, i) => { if (id) oldNumById.set(id, i + 1); });
+    const newNumById = new Map();
+    newIds.forEach((id, i) => { if (id) newNumById.set(id, i + 1); });
+    const mapNum = (tp) => {
+      if (typeof tp !== 'number' || !isFinite(tp) || tp < 1) return tp;
+      const n = Math.round(tp);
+      if (n < 1 || n > oldIds.length) return tp;
+      const id = oldIds[n - 1];
+      if (!id) return tp;
+      const nn = newNumById.get(id);
+      return nn != null ? nn : tp;
+    };
+    for (const p of state.doc.pages || []) {
+      if (!p) continue;
+      if (isIndexPage(p) && Array.isArray(p.rows)) {
+        for (const r of p.rows) {
+          if (r && typeof r.targetPage === 'number') r.targetPage = mapNum(r.targetPage);
+        }
+      }
+      if (Array.isArray(p.annotations)) {
+        for (const a of p.annotations) {
+          if (a && typeof a.targetPage === 'number') a.targetPage = mapNum(a.targetPage);
+        }
+      }
+    }
+  }
+
+  function collectGroupBlock(pages, groupId) {
+    return pages.filter((p) => p && !isFixedPage(p) && !isVariantenPage(p) && !isIndexPage(p) && !isFehlerPage(p) && pageGroupIdOf(p) === groupId);
+  }
+
+  function commitOverviewReorder(fromNavIdx, toNavIdx) {
+    if (fromNavIdx === toNavIdx) return false;
+    const nav = getNavPages();
+    if (fromNavIdx < 0 || toNavIdx < 0 || fromNavIdx >= nav.length || toNavIdx >= nav.length) return false;
+    const moved = nav[fromNavIdx];
+    const target = nav[toNavIdx];
+    if (!isOverviewMovablePage(moved) || !isOverviewMovablePage(target)) return false;
+
+    const oldIds = nav.map((p) => (p && p.id) || null);
+    const pages = (state.doc.pages || []).slice();
+
+    /* Bookends + Gruppen-Blöcke in bisheriger Nav-Reihenfolge der Layout-Kacheln */
+    let varianten = null, indexP = null, fehler = null;
+    for (const p of pages) {
+      if (!p) continue;
+      if (!varianten && isVariantenPage(p)) varianten = p;
+      if (!indexP && isIndexPage(p)) indexP = p;
+      if (isFehlerPage(p)) fehler = p;
+    }
+    const layoutNav = nav.filter(isOverviewMovablePage);
+    const fromL = layoutNav.indexOf(moved);
+    const toL = layoutNav.indexOf(target);
+    if (fromL < 0 || toL < 0) return false;
+    const order = layoutNav.slice();
+    const [item] = order.splice(fromL, 1);
+    order.splice(toL, 0, item);
+
+    const seenGroups = new Set();
+    const middle = [];
+    for (const rep of order) {
+      const gid = pageGroupIdOf(rep);
+      if (seenGroups.has(gid)) continue;
+      seenGroups.add(gid);
+      const block = collectGroupBlock(pages, gid);
+      for (const b of block) middle.push(b);
+    }
+    /* Orphans (sollte nicht vorkommen) hinten vor Fehler */
+    for (const p of pages) {
+      if (!p || isVariantenPage(p) || isIndexPage(p) || isFehlerPage(p)) continue;
+      if (middle.indexOf(p) >= 0) continue;
+      middle.push(p);
+    }
+    const nextPages = [];
+    if (varianten) nextPages.push(varianten);
+    if (indexP) nextPages.push(indexP);
+    nextPages.push.apply(nextPages, middle);
+    if (fehler) nextPages.push(fehler);
+    state.doc.pages = ensureBookends(nextPages);
+
+    const newNav = getNavPages();
+    const newIds = newNav.map((p) => (p && p.id) || null);
+    remapTargetPagesByNavIds(oldIds, newIds);
+
+    /* Aktuelle Seite beibehalten (gleiche page id) */
+    const curId = (currentPage() && currentPage().id) || null;
+    if (curId) {
+      const ni = state.doc.pages.findIndex((p) => p && p.id === curId);
+      if (ni >= 0) state.doc.pageIndex = ni;
+    }
+    try { queueChangeLogLabel('Seiten umsortiert'); } catch (_) {}
+    try { if (typeof historyCommit === 'function') historyCommit(); } catch (_) {}
+    try { bumpThumbCache(); } catch (_) {}
+    return true;
+  }
+  function refreshOverviewAfterReorder() {
+    /* Grid neu aufbauen ohne close – Token bump + open again */
+    const was = overviewReorderMode;
+    if (!el.overviewBackdrop || el.overviewBackdrop.hidden) return;
+    overviewToken += 1;
+    el.overviewGrid.innerHTML = '';
+    void openOverviewRebuildOnly(was);
+  }
+
+  async function openOverviewRebuildOnly(keepReorder) {
+    /* intern: wie openOverview, behält Backdrop sichtbar */
+    const token = ++overviewToken;
+    const pages = getNavPages();
+    const currentReal = remapToVisiblePageIndex(state.doc.pageIndex);
+    const buttons = [];
+    for (let ni = 0; ni < pages.length; ni++) {
+      const page = pages[ni];
+      const realIdx = state.doc.pages.indexOf(page);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'overview-thumb' + (realIdx === currentReal ? ' current' : '');
+      btn.dataset.pageIndex = String(realIdx);
+      btn.dataset.navIndex = String(ni);
+      const movable = isOverviewMovablePage(page);
+      btn.dataset.movable = movable ? '1' : '0';
+      if (!movable) btn.classList.add('overview-fixed');
+      const badge = document.createElement('span');
+      badge.className = 'overview-badge';
+      badge.textContent = String(ni + 1);
+      btn.appendChild(badge);
+      appendOverviewVariantBars(btn, page);
+      let pageLabel = 'Seite ' + (ni + 1);
+      if (realIdx === currentReal) btn.setAttribute('aria-current', 'page');
+      if (isVariantenPage(page)) pageLabel = page.title || 'Varianten';
+      else if (isIndexPage(page)) pageLabel = 'Arbeitsschritte';
+      else if (isFehlerPage(page)) pageLabel = (page.title || 'Fehleranalyse');
+      btn.setAttribute('aria-label', pageLabel);
+      btn.title = pageLabel;
+      if (isVariantenPage(page) || isIndexPage(page) || isFehlerPage(page)) {
+        const cap = document.createElement('span');
+        cap.className = 'overview-caption';
+        cap.textContent = pageLabel;
+        btn.appendChild(cap);
+      }
+      const key = thumbCacheKey(page);
+      let cached = thumbCache.map.get(key) || lookupPersistedThumb(page);
+      if (cached) {
+        thumbCache.map.set(key, cached);
+        applyThumbToButton(btn, cached);
+      } else {
+        const placeholder = document.createElement('div');
+        placeholder.className = 'overview-placeholder';
+        btn.appendChild(placeholder);
+      }
+      bindOverviewThumbInteractions(btn);
+      el.overviewGrid.appendChild(btn);
+      buttons.push(btn);
+    }
+    layoutOverviewMiniatures();
+    setOverviewReorderMode(!!keepReorder);
+    for (let i = 0; i < pages.length; i++) {
+      if (token !== overviewToken) return;
+      const page = pages[i];
+      const key = thumbCacheKey(page);
+      let dataUrl = thumbCache.map.get(key) || lookupPersistedThumb(page);
+      if (!dataUrl) {
+        try {
+          dataUrl = await renderPageThumbnailDataUrl(page, THUMB_MAX_W);
+          if (token !== overviewToken) return;
+          if (dataUrl) {
+            thumbCache.map.set(key, dataUrl);
+            rememberPersistedThumb(page, dataUrl);
+          }
+        } catch (_) {}
+      }
+      if (dataUrl && buttons[i]) applyThumbToButton(buttons[i], dataUrl);
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+
+  function bindOverviewThumbInteractions(btn) {
+    btn.addEventListener('click', (e) => {
+      if (overviewReorderMode) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      if (overviewDrag && overviewDrag.moved) return;
+      const idx = parseInt(btn.dataset.pageIndex, 10);
+      closeOverview();
+      if (isFinite(idx) && idx !== state.doc.pageIndex) {
+        goToPage(idx);
+        updateChromeForPage();
+      }
+    });
+    btn.addEventListener('pointerdown', (e) => {
+      if (!overviewReorderMode || !state.editMode) return;
+      if (btn.dataset.movable !== '1') return;
+      if (e.button != null && e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = btn.getBoundingClientRect();
+      overviewDrag = {
+        pointerId: e.pointerId,
+        fromNav: parseInt(btn.dataset.navIndex, 10),
+        btn: btn,
+        startX: e.clientX,
+        startY: e.clientY,
+        moved: false,
+        ghost: null,
+        w: rect.width,
+        h: rect.height,
+        lastTo: parseInt(btn.dataset.navIndex, 10),
+      };
+      try { btn.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+  }
+
+  function overviewDropNavAt(x, y) {
+    const nodes = el.overviewGrid ? el.overviewGrid.querySelectorAll('.overview-thumb[data-movable="1"]') : [];
+    let best = null, bestDist = Infinity;
+    nodes.forEach((n) => {
+      const r = n.getBoundingClientRect();
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      const d = Math.hypot(x - cx, y - cy);
+      if (d < bestDist) {
+        bestDist = d;
+        best = parseInt(n.dataset.navIndex, 10);
+      }
+    });
+    return best;
+  }
+
+  function onOverviewDragMove(e) {
+    if (!overviewDrag || overviewDrag.pointerId !== e.pointerId) return;
+    const dx = e.clientX - overviewDrag.startX;
+    const dy = e.clientY - overviewDrag.startY;
+    if (!overviewDrag.moved && Math.hypot(dx, dy) < 6) return;
+    if (!overviewDrag.moved) {
+      overviewDrag.moved = true;
+      overviewDrag.btn.classList.add('overview-dragging');
+      const ghost = document.createElement('div');
+      ghost.className = 'overview-drag-ghost';
+      ghost.style.width = overviewDrag.w + 'px';
+      ghost.style.height = overviewDrag.h + 'px';
+      const img = overviewDrag.btn.querySelector('img.overview-thumb-img');
+      if (img) {
+        const gimg = document.createElement('img');
+        gimg.src = img.src;
+        ghost.appendChild(gimg);
+      } else {
+        ghost.style.background = '#333';
+      }
+      document.body.appendChild(ghost);
+      overviewDrag.ghost = ghost;
+    }
+    if (overviewDrag.ghost) {
+      overviewDrag.ghost.style.left = e.clientX + 'px';
+      overviewDrag.ghost.style.top = e.clientY + 'px';
+    }
+    const to = overviewDropNavAt(e.clientX, e.clientY);
+    overviewDrag.lastTo = to;
+    if (el.overviewGrid) {
+      el.overviewGrid.querySelectorAll('.overview-drop-slot').forEach((n) => n.classList.remove('overview-drop-slot'));
+      if (to != null) {
+        const tbtn = el.overviewGrid.querySelector('.overview-thumb[data-nav-index="' + to + '"]');
+        if (tbtn && tbtn.dataset.movable === '1') tbtn.classList.add('overview-drop-slot');
+      }
+    }
+    if (e.cancelable) e.preventDefault();
+  }
+
+  function endOverviewDrag(commit) {
+    const d = overviewDrag;
+    overviewDrag = null;
+    if (!d) return;
+    try { d.btn.releasePointerCapture(d.pointerId); } catch (_) {}
+    d.btn.classList.remove('overview-dragging');
+    if (el.overviewGrid) el.overviewGrid.querySelectorAll('.overview-drop-slot').forEach((n) => n.classList.remove('overview-drop-slot'));
+    if (d.ghost && d.ghost.parentNode) d.ghost.parentNode.removeChild(d.ghost);
+    if (!commit) return;
+    /* auch ohne moved-Flag: wenn weit genug gezogen wurde */
+    const to = d.lastTo;
+    const far = Math.hypot((d.lastX || d.startX) - d.startX, (d.lastY || d.startY) - d.startY) >= 24;
+    if (!(d.moved || far)) return;
+    if (to == null || to === d.fromNav) return;
+    const ok = commitOverviewReorder(d.fromNav, to);
+    if (ok) {
+      renderAll();
+      refreshOverviewAfterReorder();
+    }
+  }
+
+  function onOverviewDragUp(e) {
+    if (!overviewDrag || overviewDrag.pointerId !== e.pointerId) return;
+    overviewDrag.lastX = e.clientX;
+    overviewDrag.lastY = e.clientY;
+    if (overviewDrag.lastTo == null) overviewDrag.lastTo = overviewDropNavAt(e.clientX, e.clientY);
+    endOverviewDrag(true);
+  }
+
+  /* Capture-Phase: zuverlässiger bei Pointer-Capture / Playwright-Maus */
+  document.addEventListener('pointermove', (e) => {
+    if (!overviewDrag) return;
+    overviewDrag.lastX = e.clientX;
+    overviewDrag.lastY = e.clientY;
+    onOverviewDragMove(e);
+  }, true);
+  document.addEventListener('pointerup', onOverviewDragUp, true);
+  document.addEventListener('pointercancel', onOverviewDragUp, true);
+
   function closeOverview() {
     if (!el.overviewBackdrop) return;
+    overviewReorderMode = false;
+    endOverviewDrag(false);
+    if (el.overviewGrid) el.overviewGrid.classList.remove('is-reordering');
+    if (el.overviewReorderBtn) {
+      el.overviewReorderBtn.hidden = true;
+      el.overviewReorderBtn.textContent = 'Seiten umsortieren';
+      el.overviewReorderBtn.classList.remove('is-done', 'primary');
+    }
     overviewToken += 1;
     if (overviewResizeObs) { try { overviewResizeObs.disconnect(); } catch (_) {} overviewResizeObs = null; }
     window.removeEventListener('resize', layoutOverviewMiniatures);
@@ -12443,18 +13580,23 @@
         btn.appendChild(placeholder);
       }
 
-      btn.addEventListener('click', () => {
-        const idx = parseInt(btn.dataset.pageIndex, 10);
-        closeOverview();
-        if (isFinite(idx) && idx !== state.doc.pageIndex) {
-          goToPage(idx);
-          updateChromeForPage();
-        }
-      });
+      btn.dataset.navIndex = String(ni);
+      const movable = isOverviewMovablePage(page);
+      btn.dataset.movable = movable ? '1' : '0';
+      if (!movable) btn.classList.add('overview-fixed');
+      bindOverviewThumbInteractions(btn);
 
       el.overviewGrid.appendChild(btn);
       buttons.push(btn);
     }
+
+    if (el.overviewReorderBtn) {
+      el.overviewReorderBtn.hidden = !state.editMode;
+      el.overviewReorderBtn.textContent = 'Seiten umsortieren';
+      el.overviewReorderBtn.classList.remove('is-done', 'primary');
+    }
+    overviewReorderMode = false;
+    if (el.overviewGrid) el.overviewGrid.classList.remove('is-reordering');
 
     layoutOverviewMiniatures();
     if (typeof ResizeObserver === 'function') {
@@ -13312,6 +14454,13 @@
   if (el.overviewCloseBtn) {
     el.overviewCloseBtn.addEventListener('click', closeOverview);
   }
+  if (el.overviewReorderBtn) {
+    el.overviewReorderBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!state.editMode || !isOverviewOpen()) return;
+      setOverviewReorderMode(!overviewReorderMode);
+    });
+  }
   if (el.overviewBackdrop) {
     el.overviewBackdrop.addEventListener('click', (e) => {
       if (e.target === el.overviewBackdrop) closeOverview();
@@ -13439,6 +14588,68 @@
     });
   }
 
+  /* v2.19: Bildzwischenspeicher */
+  if (el.imageTrayBtn) {
+    el.imageTrayBtn.addEventListener('click', () => {
+      if (!state.editMode) return;
+      toggleImageTray();
+    });
+  }
+  if (el.imageTrayCloseBtn) {
+    el.imageTrayCloseBtn.addEventListener('click', () => setImageTrayOpen(false));
+  }
+  if (el.imageTrayAddBtn) {
+    el.imageTrayAddBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!state.editMode || !state.imageTrayOpen) return;
+      if (imageTrayIsFull()) {
+        flash('Bildzwischenspeicher voll (max. 10)', 2800, 'error');
+        return;
+      }
+      if (el.imageTrayAddMenu) el.imageTrayAddMenu.hidden = !el.imageTrayAddMenu.hidden;
+    });
+  }
+  if (el.imageTrayCamBtn) {
+    el.imageTrayCamBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      startImageTrayCamera();
+    });
+  }
+  if (el.imageTrayFotosBtn) {
+    el.imageTrayFotosBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (el.imageTrayAddMenu) el.imageTrayAddMenu.hidden = true;
+      if (imageTrayIsFull()) {
+        flash('Bildzwischenspeicher voll (max. 10)', 2800, 'error');
+        return;
+      }
+      openFilePicker(IMAGE_TRAY_CAM_ID);
+    });
+  }
+  window.addEventListener('pointermove', onTrayDragMove);
+  window.addEventListener('pointerup', onTrayDragUp);
+  window.addEventListener('pointercancel', onTrayDragUp);
+  /* Panel nach rechts wischen → schließen */
+  if (el.imageTrayPanel) {
+    let panelSwipe = null;
+    el.imageTrayPanel.addEventListener('pointerdown', (e) => {
+      if (!state.imageTrayOpen) return;
+      if (e.target.closest && (e.target.closest('.image-tray-item') || e.target.closest('.image-tray-live') || e.target.closest('button'))) return;
+      panelSwipe = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    });
+    el.imageTrayPanel.addEventListener('pointermove', (e) => {
+      if (!panelSwipe || panelSwipe.id !== e.pointerId) return;
+      const dx = e.clientX - panelSwipe.x;
+      const dy = e.clientY - panelSwipe.y;
+      if (dx > 40 && Math.abs(dx) > Math.abs(dy)) {
+        panelSwipe = null;
+        setImageTrayOpen(false);
+      }
+    });
+    el.imageTrayPanel.addEventListener('pointerup', () => { panelSwipe = null; });
+    el.imageTrayPanel.addEventListener('pointercancel', () => { panelSwipe = null; });
+  }
+
   el.toolSplitV.addEventListener('click', () => {
     if (!state.editMode || isFixedPage(currentPage())) return;
     setSplitTool(state.splitTool === 'v' ? null : 'v');
@@ -13499,7 +14710,7 @@
      auf diesen Buttons (onViewportPointerDown). Zusätzlich: kurzer Tap (< 12 px) auf
      einen Kamera-Button ohne nachfolgenden click → Button nach 450 ms selbst auslösen;
      ein verspäteter echter click wird dann verworfen (kein Doppel-Auslösen). */
-  const CAM_BTN_SEL = '.cell-kamera-wrap .cell-cam-seg-btn, .cell-kamera-wrap .cell-cam-cancel, .cell-kamera-wrap .cell-cam-quality-btn, .cell-kamera-wrap .cell-cam-zoom-btn';
+  const CAM_BTN_SEL = '.cell-kamera-wrap .cell-cam-seg-btn, .cell-kamera-wrap .cell-cam-cancel, .cell-kamera-wrap .cell-cam-quality-btn, .cell-kamera-wrap .cell-cam-zoom-btn, .image-tray-item-del, .image-tray-add, .image-tray-close, #imageTrayBtn, #imageTrayCamBtn, #imageTrayFotosBtn';
   let camTap = null;
   let camClickSeenAt = 0;
   let camSuppressUntil = 0;
@@ -13553,7 +14764,8 @@
   const LIVE_TAP_EXEMPT_SEL = '.cell-kamera-wrap, .topbar, .drawer, .menu, .ios-pwa-status-strip, ' +
     '[role="dialog"], [role="alertdialog"], .modal-backdrop, .modal, .overview-backdrop, ' +
     '.beak-pdf-lightbox, .laufzettel-lightbox, .part-photo-lightbox, .tour-overlay, .welcome-screen, ' +
-    '.ipad-rotate-overlay, .ann-color-bar, .ann-side-bars, .copy-paste-callout';
+    '.ipad-rotate-overlay, .ann-color-bar, .ann-side-bars, .copy-paste-callout, ' +
+    '.image-tray .cell-kamera-wrap, .image-tray-add-menu, .image-tray-close, .image-tray-add, #imageTrayBtn';
   let liveTap = null;
   let liveTapClickBlockUntil = 0;
   /* v2.16: alle Finger der aktuellen Live-Kamera-Geste (für Pinch-Zoom) */
@@ -15174,6 +16386,217 @@
         ip.rows[0].targetPage = tp;
         renderAll();
         return true;
+      },
+      /* v2.19 automation helpers */
+      navIds: () => getNavPages().map((p) => (p && p.id) || ''),
+      trayCount: () => imageTrayCount(),
+      trayIds: () => ensureImageTray().map((x) => x.id),
+      traySrcLens: () => ensureImageTray().map((x) => (x.photo && x.photo.src) ? x.photo.src.length : 0),
+      addTrayDataUrl: (dataUrl) => !!(addPhotoToImageTray({ src: dataUrl })),
+      moveTrayToLeaf: (trayId, leafId) => { moveTrayPhotoToHolder(trayId, leafId); return true; },
+      moveLeafToTray: (leafId) => { moveHolderPhotoToTray(leafId); return true; },
+      deleteTray: async (id) => { await confirmDeleteTrayPhoto(id); return imageTrayCount(); },
+      deleteTrayForce: (id) => { removeImageTrayEntry(id); return imageTrayCount(); },
+      openTray: (on) => { setImageTrayOpen(!!on); return !!state.imageTrayOpen; },
+      layoutLeafIds: () => {
+        const p = currentPage();
+        if (!p || !p.root) return [];
+        return leafIdsInOrder(p.root, []).map((l) => l.id);
+      },
+      leafHasPhoto: (id) => {
+        const hit = findPhotoHolderInDoc(id);
+        return !!(hit && hit.holder && hit.holder.photo && (hit.holder.photo.src || hit.holder.photo.file));
+      },
+      leafPhotoLen: (id) => {
+        const hit = findPhotoHolderInDoc(id);
+        const s = hit && hit.holder && hit.holder.photo && hit.holder.photo.src;
+        return s ? s.length : 0;
+      },
+      setPhotoOnLeaf: (id, dataUrl) => { setPhoto(id, dataUrl); return true; },
+      setSplitColor: (k) => { setPageSplitColor(k); return pageSplitColorKey(currentPage()); },
+      getSplitColor: (pageId) => {
+        const p = pageId ? (state.doc.pages || []).find((x) => x && x.id === pageId) : currentPage();
+        return pageSplitColorKey(p) || null;
+      },
+      splitCssVar: () => {
+        const slide = el.pageTrack && el.pageTrack.querySelector('.page-slide[data-page-index="' + state.doc.pageIndex + '"] .stage-inner');
+        return slide ? (slide.getAttribute('data-split-color') || '') + '|' + (slide.style.getPropertyValue('--split-line-color') || '') : '';
+      },
+      reorder: (fromNav, toNav) => commitOverviewReorder(fromNav, toNav),
+      indexTargets: () => {
+        const ip = (state.doc.pages || []).find((p) => isIndexPage(p));
+        return (ip && ip.rows || []).filter((r) => r && r.text).map((r) => ({ text: r.text, tp: r.targetPage }));
+      },
+      setButtonTargetOnCurrent: (tp) => {
+        const p = currentPage();
+        if (!p || !Array.isArray(p.annotations)) p.annotations = [];
+        let a = p.annotations.find((x) => x && x.type === 'button');
+        if (!a) {
+          a = { id: uid('a'), type: 'button', x: 5, y: 5, w: 18, h: 10, text: 'Sprung', targetPage: tp, buttonAction: 'page' };
+          p.annotations.push(a);
+        } else {
+          a.targetPage = tp;
+          a.buttonAction = 'page';
+        }
+        renderAll();
+        return a.targetPage;
+      },
+      buttonTargets: () => {
+        const out = [];
+        for (const p of state.doc.pages || []) {
+          for (const a of (p.annotations || [])) {
+            if (a && a.type === 'button' && a.buttonAction !== 'geraeteLaufzettel') out.push({ pageId: p.id, tp: a.targetPage, text: a.text });
+          }
+        }
+        return out;
+      },
+      undo: () => undo(),
+      redo: () => redo(),
+      canUndo: () => !!(hist && hist.index > 0),
+      canRedo: () => !!(hist && hist.index >= 0 && hist.index < hist.stack.length - 1),
+      persistNow: () => persistNow(),
+      buildBeakBlob: () => buildPlanZipBlob(),
+      flashLast: () => (el.statusFlash && el.statusFlash.textContent) || '',
+      setEdit: (on) => setEditMode(!!on),
+      pageJpegDataUrl: async (pageIndex) => {
+        const pages = state.doc.pages || [];
+        const i = Math.max(0, Math.min(pages.length - 1, pageIndex|0));
+        const bytes = await renderPageToJpegBytes(pages[i], i);
+        let bin = '';
+        const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+        const step = 0x8000;
+        for (let o = 0; o < u8.length; o += step) bin += String.fromCharCode.apply(null, u8.subarray(o, o + step));
+        return 'data:image/jpeg;base64,' + btoa(bin);
+      },
+      thumbDataUrl: async (pageIndex) => {
+        const pages = state.doc.pages || [];
+        const i = Math.max(0, Math.min(pages.length - 1, pageIndex|0));
+        return await renderPageThumbnailDataUrl(pages[i], 400);
+      },
+      waitHistory: () => new Promise((r) => { scheduleHistoryCheck(0); setTimeout(() => { try { historyCommit(); } catch (_) {} r(true); }, 120); }),
+      addPage: () => { addPage(); return getNavPages().length; },
+      markDirty: () => { store.dirty = true; sessionDirty = true; },
+      loadBeakBuf: async (buf) => {
+        hist.loading++;
+        try {
+          const zip = await JSZip.loadAsync(buf);
+          const pf = zip.file('project.json');
+          if (!pf) return { ok: false, err: 'no-json' };
+          const data = JSON.parse(await pf.async('string'));
+          if (!applyLoaded(data)) return { ok: false, err: 'apply' };
+          await loadPhotosFromZip(zip, state.doc.pages);
+          renderAll();
+          historyReset();
+          return { ok: true, tray: imageTrayCount(), colors: (state.doc.pages||[]).filter((p)=>p&&!isFixedPage(p)).map((p)=>({id:p.id,c:pageSplitColorKey(p)})), nav: getNavPages().map((p)=>p.id) };
+        } catch (e) {
+          return { ok: false, err: String(e && e.message || e) };
+        } finally { hist.loading--; }
+      },
+      beakArrayBuffer: async () => {
+        const blob = await buildPlanZipBlob();
+        return await blob.arrayBuffer();
+      },
+      restoreLocalStand: async () => {
+        const fake = { name: 'Anweisungen.beak' };
+        return !!(await openLocalStandInstead(fake, null));
+      },
+      ensureTSplit: () => {
+        const p = currentPage();
+        if (!p) return false;
+        const L = (cap) => ({ type: 'leaf', id: uid('l'), photo: null, caption: cap || '', captionShort: '', captionX: 0.05, captionY: 0.78, variantId: null });
+        p.root = {
+          type: 'split', id: uid('s'), dir: 'v', ratio: 0.5,
+          a: { type: 'split', id: uid('s'), dir: 'h', ratio: 0.5, a: L('a1'), b: L('a2') },
+          b: L('b'),
+        };
+        renderAll();
+        return true;
+      },
+      ensureVSplit: () => {
+        const p = currentPage();
+        if (!p || !p.root || p.root.type === 'split') return false;
+        const leaf = p.root;
+        const id = leaf.id || uid('l');
+        p.root = {
+          type: 'split', id: uid('s'), dir: 'v', ratio: 0.5,
+          a: Object.assign({}, leaf, { id: id }),
+          b: { type: 'leaf', id: uid('l'), photo: null, caption: '', captionShort: '', captionX: 0.05, captionY: 0.78, variantId: null },
+        };
+        renderAll();
+        return true;
+      },
+      selectFirstSplit: () => {
+        const p = currentPage();
+        if (!p || !p.root) return false;
+        let sid = null;
+        (function walk(n) {
+          if (!n || sid) return;
+          if (n.type === 'split' && n.id) { sid = n.id; return; }
+          if (n.type === 'split') { walk(n.a); walk(n.b); }
+        })(p.root);
+        if (!sid) return false;
+        state.selectedSplitId = sid;
+        state.selectedId = null;
+        renderAll();
+        return true;
+      },
+      whiteSplitUi: () => {
+        const slide = el.pageTrack && el.pageTrack.querySelector('.page-slide[data-page-index="'+state.doc.pageIndex+'"]');
+        if (!slide) return {};
+        const del = slide.querySelectorAll('.split-delete');
+        const flip = slide.querySelectorAll('.split-flip-btn');
+        const sel = slide.querySelectorAll('.split-handle.selected');
+        const shownFlip = [...flip].filter((b) => b.classList.contains('is-shown') || getComputedStyle(b).visibility !== 'hidden');
+        return {
+          data: (slide.querySelector('.stage-inner')||{}).getAttribute && slide.querySelector('.stage-inner').getAttribute('data-split-color'),
+          css: (slide.querySelector('.stage-inner')||{}).style && slide.querySelector('.stage-inner').style.getPropertyValue('--split-line-color'),
+          selected: sel.length,
+          deletes: del.length,
+          flips: flip.length,
+          shownFlips: shownFlip.length,
+        };
+      },
+      seedThreeVariants: () => {
+        const vp = getVariantenPage();
+        if (!vp) return { n: 0 };
+        const mk = (label, short) => ({
+          type: 'leaf', id: uid('l'), photo: null,
+          caption: label, captionShort: short,
+          captionX: 0.05, captionY: 0.78, variantId: uid('v'),
+        });
+        const a = mk('Gerät A', 'A');
+        const b = mk('Gerät B', 'B');
+        const c = mk('Gerät C', 'C');
+        vp.root = {
+          type: 'split', id: uid('s'), dir: 'v', ratio: 0.33,
+          a: a,
+          b: {
+            type: 'split', id: uid('s'), dir: 'v', ratio: 0.5,
+            a: b, b: c,
+          },
+        };
+        syncVariantsFromPage();
+        renderAll();
+        return { n: variantsList().length, ids: variantsList().map((v) => v.id) };
+      },
+      setFehlerSource: (pageId) => {
+        const fp = (state.doc.pages||[]).find((p)=>isFehlerPage(p));
+        if (!fp) return false;
+        if (!Array.isArray(fp.rows) || !fp.rows.length) fp.rows = [makeFehlerRow()];
+        fp.rows[0].description = 'Testfehler';
+        fp.rows[0].sourcePageId = pageId;
+        renderAll();
+        return true;
+      },
+      fehlerSources: () => {
+        const fp = (state.doc.pages||[]).find((p)=>isFehlerPage(p));
+        return (fp && fp.rows || []).filter((r)=>r && r.sourcePageId).map((r)=>({src:r.sourcePageId, desc:r.description}));
+      },
+      flashText: () => (el.statusFlash && !el.statusFlash.hidden && el.statusFlash.textContent) || document.getElementById('statusFlash')?.textContent || '',
+      forceFullTrayAdd: (dataUrl) => {
+        const before = imageTrayCount();
+        addPhotoToImageTray({ src: dataUrl });
+        return { before, after: imageTrayCount(), flash: (el.statusFlash && el.statusFlash.textContent) || '' };
       },
     };
   } catch (_) {}

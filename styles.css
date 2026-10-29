@@ -637,7 +637,8 @@ html.stage-ipad-window .stage-inner {
   display: flex;
   width: 100%;
   height: 100%;
-  background: var(--frame-border);
+  /* v2.19: --split-line-color von der Seite (sonst bisherige Rahmenfarbe) */
+  background: var(--split-line-color, var(--frame-border));
   gap: var(--frame-border-w);
 }
 .cell-split.dir-v { flex-direction: row; }
@@ -4379,7 +4380,7 @@ html.orient-portrait.app-h-fixed .page-viewport {
 
 /* v1.88/v1.89: Varianten-Seite – Trennlinien Viewer weiß ohne schwarzen Saum; Editor schwarz */
 .app:not(.edit-mode) .varianten-stage .cell-split {
-  background: #ffffff;
+  background: var(--split-line-color, #ffffff);
   border: none;
   outline: none;
   box-shadow: none;
@@ -4406,12 +4407,12 @@ html.orient-portrait.app-h-fixed .page-viewport {
   box-shadow: none !important;
 }
 .app.edit-mode .varianten-stage .cell-split {
-  background: #000000;
+  background: var(--split-line-color, #000000);
 }
 
 /* v2.02: Übersicht/PDF-Export-Host liegt außerhalb #app — gleiche weiße Trenner wie Viewer */
 .export-render-host .varianten-stage .cell-split {
-  background: #ffffff;
+  background: var(--split-line-color, #ffffff);
   border: none;
   outline: none;
   box-shadow: none;
@@ -4455,10 +4456,15 @@ html.orient-portrait.app-h-fixed .page-viewport {
 .app.varianten-page-active.edit-mode #teleportBtn {
   display: none !important;
 }
-/* v2.02: Seite 1 — „Foto schieben“ allein sichtbar → voll gerundet (kein Gruppen-Rechtskant) */
+/* v2.19: Seite 1 — Foto schieben + Bildzwischenspeicher sichtbar */
 .app.varianten-page-active.edit-mode #photoMoveBtn.tool-dual-btn.btn.icon-btn {
-  border-radius: 8px !important;
+  border-radius: 8px 8px 0 0 !important;
   margin-left: 0 !important;
+}
+.app.varianten-page-active.edit-mode #imageTrayBtn.tool-dual-btn.btn.icon-btn {
+  border-radius: 0 0 8px 8px !important;
+  margin-top: -1px !important;
+  display: inline-flex !important;
 }
 
 /* v2.05: ± Seite — [hidden] muss display:inline-flex !important der Dual-Btns schlagen */
@@ -5186,3 +5192,265 @@ html.orient-portrait.app-h-fixed .page-viewport {
 .confirm-extra-text { color: var(--text); }
 .confirm-extra-info { color: var(--muted); }
 .confirm-extra-hint { color: var(--muted); font-style: italic; }
+
+/* ==== v2.19: Bildzwischenspeicher (Editor, Panel von rechts) ==== */
+:root { --image-tray-w: 112px; }
+.image-tray {
+  display: none;
+  position: absolute;
+  z-index: 55;
+  right: max(4px, env(safe-area-inset-right, 0px));
+  top: calc(var(--edit-topbar-h, 50px) + 4px);
+  max-height: calc(100% - var(--edit-topbar-h, 50px) - 10px);
+  width: var(--image-tray-w);
+  box-sizing: border-box;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 7px 6px;
+  gap: 6px;
+  background: rgba(40, 40, 44, 0.92);
+  border-radius: 12px;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  filter: none;
+  isolation: isolate;
+  transform: translateX(110%);
+  transition: transform 200ms ease-out;
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+.app.edit-mode .image-tray { display: flex; }
+.app.edit-mode .image-tray.is-open { transform: translateX(0); }
+.app:not(.edit-mode) .image-tray,
+.image-tray[hidden] { display: none !important; }
+/* Optionsleiste rechts ausblenden, solange der Tray offen ist */
+.app.edit-mode.image-tray-open .ann-side-bars { display: none !important; }
+.image-tray-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 0 2px;
+}
+.image-tray-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #e8e8ea;
+  letter-spacing: 0.02em;
+}
+.image-tray-close.btn.icon-btn {
+  width: 28px; min-width: 28px; height: 28px; min-height: 28px;
+  padding: 0; background: #1a1f27; color: #f0f0f0;
+}
+.image-tray-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  scrollbar-width: none;
+}
+.image-tray-list::-webkit-scrollbar { display: none; }
+.image-tray-item {
+  position: relative;
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #12151a;
+  border: 1px solid rgba(255,255,255,0.12);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.image-tray-item img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+.image-tray-item-del {
+  position: absolute;
+  top: 2px; right: 2px;
+  width: 22px; height: 22px;
+  border: none; border-radius: 6px;
+  background: rgba(180, 24, 48, 0.92);
+  color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0; cursor: pointer;
+  z-index: 2;
+}
+.image-tray-item-del .tool-icon { width: 12px; height: 12px; }
+.image-tray-foot { flex: 0 0 auto; display: flex; justify-content: center; }
+.image-tray-add.btn {
+  width: 34px; min-width: 34px; height: 34px; min-height: 34px;
+  padding: 0; font-size: 22px; line-height: 1;
+  background: #1a1f27; color: #f0f0f0; border-radius: 8px;
+}
+.image-tray-add-menu {
+  position: absolute;
+  left: 6px; right: 6px; bottom: 48px;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 6px;
+  background: rgba(26, 31, 39, 0.98);
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.14);
+  z-index: 3;
+}
+.image-tray-add-menu[hidden] { display: none !important; }
+.image-tray-add-menu .btn { width: 100%; justify-content: center; }
+.image-tray-live {
+  position: absolute; inset: 0;
+  background: #0a0c10;
+  border-radius: 12px;
+  z-index: 4;
+  display: flex; flex-direction: column; align-items: stretch;
+  overflow: hidden;
+}
+.image-tray-live[hidden] { display: none !important; }
+.image-tray-live video.cell-live-video {
+  flex: 1 1 auto; width: 100%; min-height: 0;
+  object-fit: cover; background: #000;
+}
+.image-tray-live .cell-kamera-wrap {
+  flex: 0 0 auto; position: relative;
+  padding: 6px; background: rgba(20,22,28,0.95);
+}
+.image-tray-empty {
+  font-size: 11px; color: #9a9aa0; text-align: center;
+  padding: 12px 4px; line-height: 1.35;
+}
+.image-tray-full-msg {
+  font-size: 11px; color: #ffb4c8; text-align: center;
+  padding: 4px 2px;
+}
+/* Drag preview + drop target */
+.image-tray-drag-ghost {
+  position: fixed; z-index: 200; pointer-events: none;
+  width: 96px; height: 72px; border-radius: 8px; overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+  border: 2px solid var(--accent, #dd007a);
+  transform: translate(-50%, -50%);
+}
+.image-tray-drag-ghost img { width: 100%; height: 100%; object-fit: cover; }
+.cell-leaf.image-tray-drop-target,
+.ann.ann-photo-clipboard-node.image-tray-drop-target {
+  outline: 3px solid var(--accent, #dd007a);
+  outline-offset: -3px;
+}
+#imageTrayBtn.tool-dual-btn.btn.icon-btn.active {
+  background: #1e3a5f; border-color: var(--accent2); color: #fff;
+}
+.app.edit-mode .topbar .tool-quint { /* photo group may grow; sidebar stacks vertically */ }
+
+/* v2.19: Tray-Button – Magenta-Slots bleiben Akzent auch im active-Zustand */
+#imageTrayBtn .tool-icon rect[fill="#dd007a"] { fill: #dd007a; }
+#imageTrayBtn.active .tool-icon { color: #fff; }
+#imageTrayBtn.active .tool-icon rect[fill="#dd007a"] { fill: #dd007a; }
+.app.edit-mode .topbar .tool-quint { }
+
+/* v2.19: Trennlinien-Farbe – Weiß-Swatch; Auswahl auf weißen Linien bleibt sichtbar */
+.ann-color-bar.is-split-colors .btn.icon-btn.ann-color-swatch[data-color="weiss"] { display: inline-flex !important; }
+.ann-color-bar.is-split-colors .btn.icon-btn.ann-color-swatch[data-color="rot"],
+.ann-color-bar.is-split-colors .btn.icon-btn.ann-color-swatch[data-color="gruen"],
+.ann-color-bar.is-split-colors .btn.icon-btn.ann-color-swatch[data-color="pink"],
+.ann-color-bar.is-split-colors .btn.icon-btn.ann-color-swatch.ann-color-none { display: none !important; }
+.ann-color-bar:not(.is-split-colors) .btn.icon-btn.ann-color-swatch[data-color="weiss"] { display: none !important; }
+.stage-inner[data-split-color="weiss"] .split-handle.selected,
+.app.edit-mode .stage-inner[data-split-color="weiss"] .split-handle.selected {
+  outline: 2px solid var(--accent, #dd007a);
+  outline-offset: -1px;
+}
+
+/* ==== v2.19: Alle Seiten – Umsortieren ==== */
+.overview-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.overview-reorder-btn {
+  white-space: nowrap;
+}
+.overview-reorder-btn.is-done {
+  background: var(--accent, #dd007a);
+  border-color: var(--accent, #dd007a);
+  color: #fff;
+}
+.overview-reorder-btn[hidden] { display: none !important; }
+.overview-grid.is-reordering {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.overview-grid.is-reordering .overview-thumb {
+  cursor: grab;
+  touch-action: none;
+}
+.overview-grid.is-reordering .overview-thumb.overview-fixed {
+  cursor: default;
+  opacity: 0.72;
+  filter: grayscale(0.15);
+}
+.overview-grid.is-reordering .overview-thumb.overview-dragging {
+  opacity: 0.35;
+  cursor: grabbing;
+}
+.overview-grid.is-reordering .overview-thumb.overview-drop-slot {
+  border-color: var(--accent, #dd007a);
+  box-shadow: 0 0 0 2px rgba(221, 0, 122, 0.45);
+}
+.overview-drag-ghost {
+  position: fixed;
+  z-index: 200;
+  pointer-events: none;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid var(--accent, #dd007a);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.45);
+  opacity: 0.95;
+  transform: translate(-50%, -50%) scale(1.04);
+}
+.overview-drag-ghost img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+@keyframes overviewJiggle {
+  0% { transform: rotate(-1.1deg) translateY(0); }
+  25% { transform: rotate(1.2deg) translateY(-0.5px); }
+  50% { transform: rotate(-0.9deg) translateY(0.4px); }
+  75% { transform: rotate(1.0deg) translateY(-0.3px); }
+  100% { transform: rotate(-1.1deg) translateY(0); }
+}
+.overview-grid.is-reordering .overview-thumb:not(.overview-fixed):not(.overview-dragging) {
+  animation: overviewJiggle 0.38s ease-in-out infinite;
+}
+.overview-grid.is-reordering .overview-thumb:nth-child(2n):not(.overview-fixed):not(.overview-dragging) {
+  animation-delay: -0.07s;
+  animation-duration: 0.42s;
+}
+.overview-grid.is-reordering .overview-thumb:nth-child(3n):not(.overview-fixed):not(.overview-dragging) {
+  animation-delay: -0.14s;
+  animation-duration: 0.36s;
+}
+.overview-grid.is-reordering .overview-thumb:nth-child(4n):not(.overview-fixed):not(.overview-dragging) {
+  animation-delay: -0.21s;
+  animation-duration: 0.44s;
+}
+.overview-grid.is-reordering .overview-thumb:nth-child(5n):not(.overview-fixed):not(.overview-dragging) {
+  animation-delay: -0.11s;
+  animation-duration: 0.4s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .overview-grid.is-reordering .overview-thumb:not(.overview-fixed):not(.overview-dragging) {
+    animation: overviewJiggleSoft 1.2s ease-in-out infinite;
+  }
+  @keyframes overviewJiggleSoft {
+    0%, 100% { transform: rotate(-0.35deg); }
+    50% { transform: rotate(0.35deg); }
+  }
+}
