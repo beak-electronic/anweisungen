@@ -1,12 +1,18 @@
 /* Anweisungen – Service Worker (App-Shell Offline-Cache). Keine .beak-Projekte cachen.
    v2.24: Neuer SW wartet auf SKIP_WAITING vom Client (nur Startbildschirm ohne offene Datei).
-   Solange eine Datei offen ist, bleibt der alte SW Controller – kein Asset-Bruch. */
-const CACHE = 'anweisungen-shell-v2.24';
+   Solange eine Datei offen ist, bleibt der alte SW Controller – kein Asset-Bruch.
+   v2.25: BEAK-Punkt + Memory; Navigations-Cache nur für App-Hülle (/ und /index.html), nicht für spiel/*. */
+const CACHE = 'anweisungen-shell-v2.25';
 const SHELL = [
   './',
   './index.html',
-  './styles.css?v=2.24',
-  './app.js?v=2.24',
+  './styles.css?v=2.25',
+  './app.js?v=2.25',
+  './punkt.css?v=2.25',
+  './punkt.js?v=2.25',
+  './spiel/memory.html',
+  './fonts/Aeonis.subset.ttf',
+  './fonts/Constantia-Bold.subset.ttf',
   './manifest.webmanifest',
   './favicon.svg',
   './favicon.png',
@@ -99,22 +105,35 @@ self.addEventListener('fetch', (event) => {
   if (isProjectLike(url)) return;
 
   if (isNavigationRequest(req) || isServiceWorkerScript(url)) {
+    const path = url.pathname || '';
+    const basis = new URL('./', self.location.href).pathname;
+    const istHuelle = path === basis || path === basis + 'index.html';
     event.respondWith(
       fetch(req)
         .then((res) => {
           if (res.ok && isNavigationRequest(req)) {
             const clone = res.clone();
             caches.open(CACHE).then((cache) => {
-              cache.put('./index.html', clone);
-              cache.put('./', clone.clone());
+              /* v2.25: nur App-Hülle als index.html speichern – sonst überschreibt das Spiel-iframe die Startseite */
+              if (istHuelle) {
+                cache.put('./index.html', clone.clone());
+                cache.put('./', clone);
+              } else {
+                cache.put(req, clone);
+              }
             }).catch(() => {});
           }
           return res;
         })
         .catch(async () => {
           if (isNavigationRequest(req)) {
-            const shell = (await matchCache('./index.html')) || (await matchCache('./'));
-            if (shell) return shell;
+            if (istHuelle) {
+              const shell = (await matchCache('./index.html')) || (await matchCache('./'));
+              if (shell) return shell;
+            } else {
+              const hit = await matchCache(req);
+              if (hit) return hit;
+            }
           }
           return new Response('', { status: 503, statusText: 'Offline' });
         })

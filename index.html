@@ -24,7 +24,8 @@
   <link rel="apple-touch-icon" sizes="152x152" href="apple-touch-icon-152.png" />
   <link rel="apple-touch-icon" sizes="120x120" href="apple-touch-icon-120.png" />
   <title>Anweisungen</title>
-  <link rel="stylesheet" href="styles.css?v=2.24" />
+  <link rel="stylesheet" href="styles.css?v=2.25" />
+  <link rel="stylesheet" href="punkt.css?v=2.25" />
 </head>
 <body>
   <script>
@@ -260,6 +261,7 @@
   <!-- v1.55: Willkommen (kein Dokument offen) -->
   <div class="welcome-screen" id="welcomeScreen" hidden role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
     <div class="welcome-card">
+      <span class="app-beak welcome-beak" aria-label="BEAK"><span class="beak-letters">B&nbsp;E&nbsp;A&nbsp;K</span><span class="beak-dot">•</span></span>
       <div class="welcome-brand">
         <img class="welcome-icon" src="apple-touch-icon.png" alt="" width="72" height="72" />
         <h1 class="welcome-title" id="welcomeTitle">Anweisungen</h1>
@@ -431,6 +433,8 @@
 
   <script src="vendor/jszip.min.js"></script>
   <script src="vendor/pdf-lib.min.js"></script>
-  <script src="app.js?v=2.24"></script>
+  <script src="app.js?v=2.25"></script>
+  <script>window.BEAK_PUNKT_SPIEL_URL = 'spiel/memory.html';</script>
+  <script src="punkt.js?v=2.25"></script>
 </body>
 </html>

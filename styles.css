@@ -3441,6 +3441,7 @@ html.overlay-scroll, html.overlay-scroll body { touch-action: auto; }
 }
 .welcome-screen[hidden] { display: none !important; }
 .welcome-card {
+  position: relative; /* Anker für BEAK-Logo oben rechts (v2.25) */
   width: min(420px, 94vw);
   background: var(--panel);
   border: 1px solid var(--border);
@@ -3448,6 +3449,51 @@ html.overlay-scroll, html.overlay-scroll body { touch-action: auto; }
   padding: 28px 24px 22px;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(221, 0, 122, 0.12);
   text-align: center;
+}
+/* BEAK-Logo (wie Bauteile Suchen: Aeonis + Constantia-Punkt), Akzent #dd007a */
+@font-face {
+  font-family: "AeonisLogo";
+  src: url("fonts/Aeonis.subset.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "ConstantiaBullet";
+  src: url("fonts/Constantia-Bold.subset.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+.app-beak {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.12em;
+  user-select: none;
+  line-height: 1;
+  white-space: nowrap;
+}
+.app-beak .beak-letters {
+  font-family: "AeonisLogo", sans-serif;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  color: #727272;
+  font-weight: 400;
+}
+.app-beak .beak-dot {
+  font-family: "ConstantiaBullet", Georgia, serif;
+  font-size: 14px;
+  color: var(--accent); /* #dd007a */
+  line-height: 1;
+  transform: translateY(0.5px);
+}
+.welcome-card .welcome-beak {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2;
+  pointer-events: none;
 }
 .welcome-brand { margin-bottom: 22px; }
 .welcome-icon {

@@ -2,7 +2,14 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.24
+**Version:** 2.25
+
+## Neu in 2.25
+
+- **BEAK-Logo auf dem Willkommensbildschirm:** Oben rechts auf der Willkommenskarte das Wortmarken-Logo „B E A K •“ (Aeonis + Constantia-Punkt, Akzent `#dd007a`), analog zu Bauteile Suchen.
+- **BEAK-Punkt (Easter Egg):** Schnelles Tippen auf den pinken Punkt (~7×) lässt einen pinken Kreis wachsen und öffnet das Bestückungs-Memory im Overlay; „Zurück an die Arbeit“ schließt wieder. Nur aktiv, wenn kein Dokument offen ist (Willkommensbildschirm). Spielername = Geräte-Initialen (`?spieler=`), sonst ohne Parameter. Bernd-Kappler→„Chef“ bleibt harmlos.
+- **Bestückungs-Memory:** Spiel unter `spiel/memory.html` (Spiel **V1.12**), offline im SW-Cache; nur lokaler Highscore. Alle Level Bauteil↔Symbol. Fotos (Daniel) für alle Motive; Folien-C bzw. Tantal nutzen die Symbole von Keramik-C bzw. Elko (diese Motive entfallen). Pro Deck max. ein Motiv je Symbolgruppe (≥10). LED-Symbolpfeile parallel ohne Überlappung.
+- **Service Worker:** Cache `anweisungen-shell-v2.25` und `?v=2.25`. Navigations-Cache speichert `index.html` nur für `/` bzw. `/index.html` (Spiel-iframe überschreibt die Startseite nicht). Auto-Update auf dem Startbildschirm unverändert.
 
 ## Neu in 2.24
 
