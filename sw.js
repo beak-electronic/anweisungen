@@ -1,12 +1,12 @@
 /* Anweisungen – Service Worker (App-Shell Offline-Cache). Keine .beak-Projekte cachen.
-   v2.23: Neuer SW wartet auf SKIP_WAITING vom Client (nur Startbildschirm ohne offene Datei).
+   v2.24: Neuer SW wartet auf SKIP_WAITING vom Client (nur Startbildschirm ohne offene Datei).
    Solange eine Datei offen ist, bleibt der alte SW Controller – kein Asset-Bruch. */
-const CACHE = 'anweisungen-shell-v2.23';
+const CACHE = 'anweisungen-shell-v2.24';
 const SHELL = [
   './',
   './index.html',
-  './styles.css?v=2.23',
-  './app.js?v=2.23',
+  './styles.css?v=2.24',
+  './app.js?v=2.24',
   './manifest.webmanifest',
   './favicon.svg',
   './favicon.png',
@@ -70,7 +70,7 @@ self.addEventListener('install', (event) => {
           } catch (_) {}
         })
       );
-      /* v2.23: kein skipWaiting hier – Client sendet SKIP_WAITING erst auf dem Startbildschirm */
+      /* v2.24: kein skipWaiting hier – Client sendet SKIP_WAITING erst auf dem Startbildschirm */
     })()
   );
 });

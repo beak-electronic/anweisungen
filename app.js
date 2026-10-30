@@ -3149,7 +3149,7 @@
    *    vendor/pdf.legacy.iife.js + vendor/pdf.worker.legacy.iife.js; der Worker
    *    läuft dann im Hauptthread (globalThis.pdfjsWorker).
    * Fehler werden NICHT mehr verschluckt, sondern als Meldung angezeigt. */
-  const APP_VERSION = '2.23';
+  const APP_VERSION = '2.24';
   const PDF_ASSET_QS = '?v=' + APP_VERSION;
   function syncAppVersionLabels() {
     const label = 'Anweisungen · Version ' + APP_VERSION;
@@ -11425,7 +11425,7 @@
   }
 
 
-  function pickPageForVersionThumb() {
+  function pickPageForVersionThumbFallback() {
     const pages = (state.doc && state.doc.pages) || [];
     const hasPhoto = (page) => {
       if (!page || !page.root) return false;
@@ -11452,12 +11452,38 @@
     return pages[0] || null;
   }
 
+  /* v2.24: Vorschaubild = aktuell sichtbare Seite beim Sichern; sonst bisherige Heuristik */
+  function pickPageForVersionThumb() {
+    try {
+      if (typeof docOpen !== 'undefined' && docOpen) {
+        const cur = typeof currentPage === 'function' ? currentPage() : null;
+        if (cur) return cur;
+      }
+    } catch (_) {}
+    return pickPageForVersionThumbFallback();
+  }
+
+  function versionThumbPageNavNumber(page) {
+    try {
+      if (!page || !state.doc || !Array.isArray(state.doc.pages)) return null;
+      const real = state.doc.pages.indexOf(page);
+      if (real < 0) return null;
+      const nav = navIndexOfPageIndex(real);
+      if (typeof nav !== 'number' || nav < 0) return null;
+      return nav + 1; /* 1-basierte Anzeige wie „3 / 12“ */
+    } catch (_) {
+      return null;
+    }
+  }
+
   async function makeVersionThumbDataUrl() {
     const page = pickPageForVersionThumb();
-    if (!page || typeof renderPageThumbnailDataUrl !== 'function') return null;
-    /* ~200 px breit, kleines JPEG für die Versionen-Liste */
+    if (!page || typeof renderPageThumbnailDataUrl !== 'function') {
+      return { dataUrl: null, thumbPage: null };
+    }
+    const thumbPage = versionThumbPageNavNumber(page);
     const url = await renderPageThumbnailDataUrl(page, 200);
-    return url || null;
+    return { dataUrl: url || null, thumbPage: thumbPage };
   }
 
   async function snapshotFromBuiltProject(project, photoByteEntries, opts) {
@@ -11497,10 +11523,24 @@
     delete proj.thumbs;
     const contentHash = projectContentHashStable(proj);
     let thumbDataUrl = o.thumbDataUrl || null;
+    let thumbPage = (typeof o.thumbPage === 'number' && o.thumbPage >= 1) ? Math.round(o.thumbPage) : null;
     if (!thumbDataUrl) {
       try {
-        thumbDataUrl = await makeVersionThumbDataUrl();
+        const th = await makeVersionThumbDataUrl();
+        if (th && typeof th === 'object') {
+          thumbDataUrl = th.dataUrl || null;
+          if (thumbPage == null && typeof th.thumbPage === 'number') thumbPage = th.thumbPage;
+        } else if (typeof th === 'string') {
+          /* Abwärtskompat falls Hilfsfunktion wieder String liefert */
+          thumbDataUrl = th;
+        }
       } catch (_) { thumbDataUrl = null; }
+    }
+    if (thumbPage == null) {
+      try {
+        const p = pickPageForVersionThumb();
+        thumbPage = versionThumbPageNavNumber(p);
+      } catch (_) {}
     }
     let savedBy = '';
     try {
@@ -11517,6 +11557,7 @@
       photoCount: countPhotosInProjectData(proj),
       contentHash: contentHash,
       savedBy: savedBy || null,
+      thumbPage: (typeof thumbPage === 'number' && thumbPage >= 1) ? thumbPage : null,
       project: proj,
       media: media,
       thumbDataUrl: thumbDataUrl,
@@ -11536,6 +11577,7 @@
       photoCount: v.photoCount,
       contentHash: v.contentHash,
       savedBy: (v.savedBy && String(v.savedBy).trim()) ? String(v.savedBy).trim().slice(0, 48) : null,
+      thumbPage: (typeof v.thumbPage === 'number' && v.thumbPage >= 1) ? Math.round(v.thumbPage) : null,
       project: JSON.parse(JSON.stringify(v.project)),
       media: media,
       thumbDataUrl: v.thumbDataUrl || null,
@@ -11586,6 +11628,7 @@
         photoCount: v.photoCount,
         contentHash: v.contentHash,
         savedBy: (v.savedBy && String(v.savedBy).trim()) ? String(v.savedBy).trim().slice(0, 48) : null,
+        thumbPage: (typeof v.thumbPage === 'number' && v.thumbPage >= 1) ? Math.round(v.thumbPage) : null,
         project: projPath,
         thumb: v.thumbDataUrl ? (dir + 'thumb.jpg') : null,
       });
@@ -11657,6 +11700,7 @@
         photoCount: typeof it.photoCount === 'number' ? it.photoCount : countPhotosInProjectData(project),
         contentHash: it.contentHash || projectContentHashStable(project),
         savedBy: savedByRaw || null,
+        thumbPage: (typeof it.thumbPage === 'number' && it.thumbPage >= 1) ? Math.round(it.thumbPage) : null,
         project: project,
         media: media,
         thumbDataUrl: thumbDataUrl,
@@ -11786,7 +11830,11 @@
       meta.appendChild(when);
       const stats = document.createElement('div');
       stats.className = 'versions-stats';
-      stats.textContent = v.pageCount + (v.pageCount === 1 ? ' Seite · ' : ' Seiten · ') + v.photoCount + (v.photoCount === 1 ? ' Foto' : ' Fotos');
+      let statsTxt = v.pageCount + (v.pageCount === 1 ? ' Seite · ' : ' Seiten · ') + v.photoCount + (v.photoCount === 1 ? ' Foto' : ' Fotos');
+      if (typeof v.thumbPage === 'number' && v.thumbPage >= 1) {
+        statsTxt += ' · Seite ' + v.thumbPage;
+      }
+      stats.textContent = statsTxt;
       meta.appendChild(stats);
       li.appendChild(meta);
       const btn = document.createElement('button');
@@ -17620,8 +17668,16 @@
       /* v2.22 document versions */
       listDocVersions: () => docVersions.map((v) => ({
         id: v.id, savedAt: v.savedAt, pageCount: v.pageCount, photoCount: v.photoCount, contentHash: v.contentHash,
-        savedBy: v.savedBy || null,
+        savedBy: v.savedBy || null, thumbPage: v.thumbPage || null,
       })),
+      goToNavPage: (n) => {
+        const real = resolveTargetPageRealIndex(Number(n));
+        if (real < 0) return false;
+        goToPage(real);
+        return true;
+      },
+      currentNavPage: () => navIndexOfPageIndex(state.doc.pageIndex) + 1,
+      lastSavedThumbPage: () => (lastSavedSnapshot && lastSavedSnapshot.thumbPage) || null,
       setDeviceInitials: (v) => { setStoredDeviceNickname(v || ''); refreshDeviceNicknameHint(); return getStoredDeviceNickname(); },
       getDeviceInitials: () => getStoredDeviceNickname(),
       docVersionsCount: () => docVersions.length,

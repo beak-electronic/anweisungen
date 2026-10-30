@@ -2,7 +2,12 @@
 
 Mehrseitige Foto-Anweisungen (Landscape) im BEAK-Stil.
 
-**Version:** 2.23
+**Version:** 2.24
+
+## Neu in 2.24
+
+- **Versionen – Vorschaubild der aktuellen Seite:** Beim **Sichern** zeigt das Miniaturbild in **Letzte Versionen** die Seite, auf der man gerade war (Editor/Viewer), nicht mehr pauschal die erste Layout-Seite mit Foto. Zusätzlich steht in der Meta-Zeile **Seite N** (Navigationsnummer). Fehlt eine aktuelle Seite, greift die bisherige Auswahl-Logik.
+- **Service Worker:** Cache `anweisungen-shell-v2.24` und `?v=2.24`.
 
 ## Neu in 2.23
 
